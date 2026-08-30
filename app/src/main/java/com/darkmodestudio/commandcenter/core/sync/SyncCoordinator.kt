@@ -3,6 +3,8 @@ package com.darkmodestudio.commandcenter.core.sync
 import com.darkmodestudio.commandcenter.core.database.DmsDatabase
 import com.darkmodestudio.commandcenter.core.network.CloudflareConnector
 import com.darkmodestudio.commandcenter.core.network.GitHubConnector
+import com.darkmodestudio.commandcenter.core.network.SupabaseConnector
+import com.darkmodestudio.commandcenter.core.network.VercelConnector
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
 import kotlinx.coroutines.Dispatchers
@@ -32,14 +34,22 @@ class SyncCoordinator(
     private val database: DmsDatabase,
     private val keystoreCredentialManager: KeystoreCredentialManager,
     private val gitHubConnector: GitHubConnector = GitHubConnector(),
-    private val cloudflareConnector: CloudflareConnector = CloudflareConnector()
+    private val cloudflareConnector: CloudflareConnector = CloudflareConnector(),
+    private val supabaseConnector: SupabaseConnector = SupabaseConnector(),
+    private val vercelConnector: VercelConnector = VercelConnector()
 ) {
 
     private val _syncState = MutableStateFlow(SyncState())
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
 
+    private val automationEvaluator = AutomationEvaluator(database)
+
     private val syncers: List<ProviderSyncer> = listOf(
-        GitHubSyncer(database, keystoreCredentialManager, gitHubConnector)
+        GitHubSyncer(database, keystoreCredentialManager, gitHubConnector),
+        CloudflareSyncer(database, keystoreCredentialManager, cloudflareConnector),
+        SupabaseSyncer(database, keystoreCredentialManager, supabaseConnector),
+        VercelSyncer(database, keystoreCredentialManager, vercelConnector),
+        AgentUsageSyncer(database, keystoreCredentialManager)
     )
 
     suspend fun syncAll(mode: SyncMode): List<ProviderSyncResult> = withContext(Dispatchers.IO) {
@@ -60,6 +70,11 @@ class SyncCoordinator(
                 )
             }
         }
+
+        // Evaluate event-driven automation rules following telemetry ingestion
+        try {
+            automationEvaluator.evaluateAllRules()
+        } catch (_: Exception) {}
 
         val allSuccess = results.all { it.isSuccess }
         _syncState.value = SyncState(
