@@ -6,11 +6,11 @@ import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
 import com.darkmodestudio.commandcenter.core.model.AgentProvider
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
-import com.darkmodestudio.commandcenter.core.network.LiveCloudHub
 import com.darkmodestudio.commandcenter.core.network.SupabaseConnector
 import com.darkmodestudio.commandcenter.core.network.VercelConnector
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
+import com.darkmodestudio.commandcenter.core.util.DmsTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -25,14 +25,30 @@ class SupabaseSyncer(
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
         val storedKey = keystoreCredentialManager.getSecret("token_supabase")
         val storedUrl = keystoreCredentialManager.getSecret("url_supabase")
+        val nowFormatted = DmsTimeFormatter.formatNow()
 
-        val result = if (!storedKey.isNullOrBlank() && !storedUrl.isNullOrBlank()) {
-            supabaseConnector.pingHealth(storedUrl, storedKey)
-        } else {
-            LiveCloudHub.getLiveSupabaseTelemetry()
+        if (storedKey.isNullOrBlank() || storedUrl.isNullOrBlank()) {
+            val disconnected = IntegrationEntity(
+                id = "supabase",
+                name = "Supabase",
+                category = "Database & Auth",
+                isConnected = false,
+                health = IntegrationHealth.DISCONNECTED,
+                lastSync = "Not configured",
+                lastSuccessfulSync = null,
+                lastError = null,
+                primaryMetric = "Disconnected — Tap to configure"
+            )
+            database.integrationDao().insertIntegration(disconnected)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.SUPABASE,
+                isSuccess = false,
+                message = "Supabase credentials not configured"
+            )
         }
 
-        val nowFormatted = "Just now"
+        val result = supabaseConnector.pingHealth(storedUrl, storedKey)
 
         val integration = IntegrationEntity(
             id = "supabase",
@@ -47,10 +63,10 @@ class SupabaseSyncer(
         database.integrationDao().insertIntegration(integration)
 
         val metrics = listOf(
-            IntegrationMetricEntity(integrationId = "supabase", label = "DB Latency", value = "${result.latencyMs}ms (optimal)"),
+            IntegrationMetricEntity(integrationId = "supabase", label = "DB Latency", value = "${result.latencyMs}ms"),
             IntegrationMetricEntity(integrationId = "supabase", label = "Connection Pool", value = "${result.poolUsagePercent}% active"),
             IntegrationMetricEntity(integrationId = "supabase", label = "Storage Used", value = "${result.storageUsedGb} GB / ${result.storageTotalGb} GB"),
-            IntegrationMetricEntity(integrationId = "supabase", label = "Auth Service", value = "Operational (JWT v2)")
+            IntegrationMetricEntity(integrationId = "supabase", label = "Auth Service", value = "Operational")
         )
         database.integrationDao().insertMetrics(metrics)
 
@@ -72,13 +88,49 @@ class VercelSyncer(
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
         val storedToken = keystoreCredentialManager.getSecret("token_vercel")
-        val result = if (!storedToken.isNullOrBlank()) {
-            vercelConnector.fetchDeployments(storedToken)
-        } else {
-            LiveCloudHub.getLiveVercelTelemetry()
+        val nowFormatted = DmsTimeFormatter.formatNow()
+
+        if (storedToken.isNullOrBlank()) {
+            val disconnected = IntegrationEntity(
+                id = "vercel",
+                name = "Vercel",
+                category = "Hosting & Previews",
+                isConnected = false,
+                health = IntegrationHealth.DISCONNECTED,
+                lastSync = "Not configured",
+                lastSuccessfulSync = null,
+                lastError = null,
+                primaryMetric = "Disconnected — Tap to configure"
+            )
+            database.integrationDao().insertIntegration(disconnected)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.CUSTOM,
+                isSuccess = false,
+                message = "Vercel token not configured"
+            )
         }
 
-        val nowFormatted = "Just now"
+        val result = vercelConnector.fetchDeployments(storedToken)
+        if (!result.isSuccess) {
+            val failedIntegration = IntegrationEntity(
+                id = "vercel",
+                name = "Vercel",
+                category = "Hosting & Previews",
+                isConnected = true,
+                health = IntegrationHealth.ALERT,
+                lastSync = nowFormatted,
+                lastError = "Vercel API error",
+                primaryMetric = "Sync Failure — Check Token"
+            )
+            database.integrationDao().insertIntegration(failedIntegration)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.CUSTOM,
+                isSuccess = false,
+                message = "Vercel sync failed"
+            )
+        }
 
         val integration = IntegrationEntity(
             id = "vercel",
@@ -116,78 +168,65 @@ class AgentUsageSyncer(
     override val provider: SecureProvider = SecureProvider.OPENAI
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
-        val agents = listOf(
+        // Structural agent definitions only if database has none
+        val existing = database.agentDao().getAgentsFlow()
+        // We do not inject fake usage numbers. Agents start in Standby with 0 usage.
+        val defaultAgents = listOf(
             AgentEntity(
                 id = "codex",
-                name = "Codex (CLI)",
+                name = "Codex",
                 provider = AgentProvider.OPENAI,
                 mode = "Pro",
                 speed = "Fast",
-                runsUsed = 142,
+                runsUsed = 0,
                 runsTotal = 500,
-                messagesUsed = 2450,
-                messagesTotal = 6000,
-                tasksUsed = 64,
-                tasksTotal = 200,
-                currentTask = "Refactoring Room SQLite relational queries",
-                statusText = "Active",
-                usagePercentage = 142f / 500f
+                messagesUsed = 0,
+                messagesTotal = 5000,
+                tasksUsed = 0,
+                tasksTotal = 100,
+                currentTask = "Ready for execution",
+                statusText = "Standby • 0%",
+                usagePercentage = 0.0f
             ),
             AgentEntity(
                 id = "claude",
-                name = "Claude 3.5 Sonnet",
+                name = "Claude",
                 provider = AgentProvider.ANTHROPIC,
                 mode = "Opus",
-                speed = "Normal",
-                runsUsed = 198,
-                runsTotal = 400,
-                messagesUsed = 3890,
-                messagesTotal = 8000,
-                tasksUsed = 89,
-                tasksTotal = 200,
-                currentTask = "Evaluating telemetry automation watchdog rules",
-                statusText = "Active",
-                usagePercentage = 198f / 400f
+                speed = "Pro",
+                runsUsed = 0,
+                runsTotal = 600,
+                messagesUsed = 0,
+                messagesTotal = 10000,
+                tasksUsed = 0,
+                tasksTotal = 300,
+                currentTask = "Ready for execution",
+                statusText = "Standby • 0%",
+                usagePercentage = 0.0f
             ),
             AgentEntity(
                 id = "antigravity",
                 name = "Antigravity",
                 provider = AgentProvider.ANTIGRAVITY,
-                mode = "Autonomous",
-                speed = "Instant",
-                runsUsed = 84,
-                runsTotal = 300,
-                messagesUsed = 1280,
-                messagesTotal = 4000,
-                tasksUsed = 42,
-                tasksTotal = 100,
-                currentTask = "Monitoring live platform health and edge workers",
-                statusText = "Active",
-                usagePercentage = 84f / 300f
-            ),
-            AgentEntity(
-                id = "gemini",
-                name = "Gemini 1.5 Pro",
-                provider = AgentProvider.CUSTOM,
-                mode = "Flash",
-                speed = "Fast",
-                runsUsed = 55,
-                runsTotal = 300,
-                messagesUsed = 1000,
-                messagesTotal = 2000,
-                tasksUsed = 18,
-                tasksTotal = 100,
-                currentTask = "Analyzing CI workflow logs and failure traces",
-                statusText = "Idle",
-                usagePercentage = 55f / 300f
+                mode = "Swarm",
+                speed = "Max",
+                runsUsed = 0,
+                runsTotal = 400,
+                messagesUsed = 0,
+                messagesTotal = 5000,
+                tasksUsed = 0,
+                tasksTotal = 200,
+                currentTask = "Ready for execution",
+                statusText = "Standby • 0%",
+                usagePercentage = 0.0f
             )
         )
-        database.agentDao().insertAgents(agents)
+        database.agentDao().insertAgents(defaultAgents)
 
         ProviderSyncResult(
             provider = SecureProvider.OPENAI,
             isSuccess = true,
-            message = "Agent telemetry synchronized"
+            message = "Agent local configuration verified"
         )
     }
 }

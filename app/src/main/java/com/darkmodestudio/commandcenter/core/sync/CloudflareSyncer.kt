@@ -5,9 +5,9 @@ import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.network.CloudflareConnector
-import com.darkmodestudio.commandcenter.core.network.LiveCloudHub
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
+import com.darkmodestudio.commandcenter.core.util.DmsTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,13 +21,49 @@ class CloudflareSyncer(
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
         val storedToken = keystoreCredentialManager.getSecret("token_cloudflare")
-        val result = if (!storedToken.isNullOrBlank()) {
-            cloudflareConnector.fetchTelemetry(storedToken)
-        } else {
-            LiveCloudHub.getLiveCloudflareTelemetry()
+        val nowFormatted = DmsTimeFormatter.formatNow()
+
+        if (storedToken.isNullOrBlank()) {
+            val disconnected = IntegrationEntity(
+                id = "cloudflare",
+                name = "Cloudflare",
+                category = "Edge & Infrastructure",
+                isConnected = false,
+                health = IntegrationHealth.DISCONNECTED,
+                lastSync = "Not configured",
+                lastSuccessfulSync = null,
+                lastError = null,
+                primaryMetric = "Disconnected — Tap to configure"
+            )
+            database.integrationDao().insertIntegration(disconnected)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.CLOUDFLARE,
+                isSuccess = false,
+                message = "Cloudflare API Token not configured"
+            )
         }
 
-        val nowFormatted = "Just now"
+        val result = cloudflareConnector.fetchTelemetry(storedToken)
+        if (!result.isSuccess) {
+            val failedIntegration = IntegrationEntity(
+                id = "cloudflare",
+                name = "Cloudflare",
+                category = "Edge & Infrastructure",
+                isConnected = true,
+                health = IntegrationHealth.ALERT,
+                lastSync = nowFormatted,
+                lastError = "Failed to fetch Cloudflare telemetry",
+                primaryMetric = "Sync Failure — Verify Token"
+            )
+            database.integrationDao().insertIntegration(failedIntegration)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.CLOUDFLARE,
+                isSuccess = false,
+                message = "Cloudflare sync failed"
+            )
+        }
 
         val integration = IntegrationEntity(
             id = "cloudflare",

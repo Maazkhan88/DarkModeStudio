@@ -1,99 +1,242 @@
 package com.darkmodestudio.commandcenter.core.data.repository
 
-import com.darkmodestudio.commandcenter.core.data.adapter.AnthropicAdapter
-import com.darkmodestudio.commandcenter.core.data.adapter.AntigravityAdapter
-import com.darkmodestudio.commandcenter.core.data.adapter.ManualAgentAdapter
-import com.darkmodestudio.commandcenter.core.data.adapter.OpenAIAdapter
+import androidx.room.Room
+import com.darkmodestudio.commandcenter.core.database.DmsDatabase
+import com.darkmodestudio.commandcenter.core.database.entity.AgentEntity
+import com.darkmodestudio.commandcenter.core.database.entity.AgentUsageSnapshotEntity
+import com.darkmodestudio.commandcenter.core.database.entity.AppSettingsEntity
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
+import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
 import com.darkmodestudio.commandcenter.core.model.AgentProvider
+import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
+import com.darkmodestudio.commandcenter.core.model.ProjectStatus
+import com.darkmodestudio.commandcenter.core.model.TaskPriority
+import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class RepositoriesTest {
 
-    @Test
-    fun testProjectRepositoryProvidesRequiredProjects() = runBlocking {
-        val repo = ProjectRepository()
-        val projects = repo.projects.first()
+    private lateinit var database: DmsDatabase
+    private lateinit var projectRepository: ProjectRepository
+    private lateinit var taskRepository: TaskRepository
+    private lateinit var agentRepository: AgentRepository
+    private lateinit var healthRepository: HealthRepository
+    private lateinit var notificationRepository: NotificationRepository
+    private lateinit var settingsRepository: SettingsRepository
 
-        assertTrue(projects.isNotEmpty())
-        val secondMe = projects.find { it.id == "secondme" }
-        assertNotNull(secondMe)
-        assertEquals("SecondMe", secondMe?.name)
+    @Before
+    fun setup() {
+        val context = RuntimeEnvironment.getApplication()
+        database = Room.inMemoryDatabaseBuilder(context, DmsDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        projectRepository = ProjectRepository(database.projectDao())
+        taskRepository = TaskRepository(database.taskDao())
+        agentRepository = AgentRepository(database.agentDao())
+        healthRepository = HealthRepository(database.integrationDao())
+        notificationRepository = NotificationRepository(
+            database.notificationDao(),
+            database.reminderDao(),
+            database.settingsDao()
+        )
+        settingsRepository = SettingsRepository(
+            database.settingsDao(),
+            database.automationDao()
+        )
+    }
+
+    @After
+    fun teardown() {
+        database.close()
     }
 
     @Test
-    fun testTaskRepositoryToggleAndSearch() = runBlocking {
-        val repo = TaskRepository()
-        val tasks = repo.tasks.first()
-        assertTrue(tasks.isNotEmpty())
+    fun project_zeroTasks_displaysZeroCountsAndZeroProgress() = runBlocking {
+        val projectEntity = ProjectEntity(
+            id = "test_project",
+            name = "Test Zero Project",
+            description = "A project with 0 tasks",
+            iconTag = "TZ",
+            status = ProjectStatus.ON_TRACK,
+            isMvp = false,
+            owner = "Tester",
+            createdAt = "2026-08-30",
+            dueDate = "",
+            nextMilestone = "None",
+            manualProgressOverride = null
+        )
+        database.projectDao().insertProject(projectEntity)
 
-        val searchResults = repo.searchTasksFlow("Auth").first()
-        assertTrue(searchResults.any { it.title.contains("Auth", ignoreCase = true) })
+        val projects = projectRepository.projects.first()
+        assertEquals(1, projects.size)
+        val project = projects.first()
+
+        assertEquals("test_project", project.id)
+        assertEquals(0, project.totalTasks)
+        assertEquals(0, project.doneTasks)
+        assertEquals(0, project.pendingTasks)
+        assertEquals(0.0f, project.progress, 0.001f)
+        assertTrue("Assigned agents must be empty when no tasks exist", project.assignedAgents.isEmpty())
     }
 
     @Test
-    fun testAgentRepositoryMetrics() = runBlocking {
-        val repo = AgentRepository()
-        val agents = repo.agents.first()
+    fun project_withTasks_derivesAssignedAgentsAndTaskCounts() = runBlocking {
+        val projectEntity = ProjectEntity(
+            id = "p1",
+            name = "Project One",
+            description = "Test Project",
+            iconTag = "P1",
+            status = ProjectStatus.IN_PROGRESS,
+            isMvp = true,
+            owner = "Maaz",
+            createdAt = "2026-08-30",
+            dueDate = "2026-09-30",
+            nextMilestone = "Alpha",
+            manualProgressOverride = null
+        )
+        database.projectDao().insertProject(projectEntity)
 
-        assertEquals(4, agents.size)
-        assertTrue(repo.totalRunsUsed > 0)
-        assertTrue(repo.totalRunsLimit > 0)
+        val task1 = TaskEntity(
+            id = "t1",
+            projectId = "p1",
+            projectName = "Project One",
+            title = "Build Auth",
+            status = TaskStatus.DONE,
+            priority = TaskPriority.HIGH,
+            assignedAgent = "Codex",
+            dueTime = "12:00 PM"
+        )
+        val task2 = TaskEntity(
+            id = "t2",
+            projectId = "p1",
+            projectName = "Project One",
+            title = "Build UI",
+            status = TaskStatus.PENDING,
+            priority = TaskPriority.MEDIUM,
+            assignedAgent = "Claude",
+            dueTime = "04:00 PM"
+        )
+        database.taskDao().insertTasks(listOf(task1, task2))
+
+        val projects = projectRepository.projects.first()
+        val project = projects.first { it.id == "p1" }
+
+        assertEquals(2, project.totalTasks)
+        assertEquals(1, project.doneTasks)
+        assertEquals(1, project.pendingTasks)
+        assertEquals(0.5f, project.progress, 0.001f)
+        assertEquals(listOf("Codex", "Claude"), project.assignedAgents)
     }
 
     @Test
-    fun testHealthRepositorySummary() = runBlocking {
-        val repo = HealthRepository()
-        val integrations = repo.integrations.first()
-        val summary = repo.summaryFlow.first()
+    fun task_toggleStatus_updatesPersistenceInRoom() = runBlocking {
+        taskRepository.createTask(
+            title = "Test Toggle Task",
+            description = "Testing status toggle",
+            projectId = "p1",
+            projectName = "Project One",
+            priority = TaskPriority.HIGH,
+            assignedAgent = "Antigravity",
+            dueTime = "Today 5pm"
+        )
 
-        assertTrue(integrations.isNotEmpty())
-        assertTrue(summary.healthScore > 0f)
+        val initialTasks = taskRepository.tasks.first()
+        assertEquals(1, initialTasks.size)
+        val taskId = initialTasks.first().id
+        assertEquals(TaskStatus.PENDING, initialTasks.first().status)
+
+        taskRepository.toggleTask(taskId)
+
+        val updatedTasks = taskRepository.tasks.first()
+        assertEquals(TaskStatus.DONE, updatedTasks.first().status)
+        assertNotNull(updatedTasks.first().completedAt)
     }
 
     @Test
-    fun testNotificationRepositoryReminders() = runBlocking {
-        val repo = NotificationRepository()
-        val notifications = repo.notifications.first()
-        val reminders = repo.reminders.first()
+    fun agent_usageSummary_computesRealDynamicMetrics() = runBlocking {
+        val agent1 = AgentEntity(
+            id = "agent_codex",
+            name = "Codex",
+            provider = AgentProvider.OPENAI,
+            runsUsed = 50,
+            runsTotal = 500,
+            messagesUsed = 300,
+            messagesTotal = 5000,
+            tasksUsed = 10,
+            tasksTotal = 100,
+            currentTask = "Working",
+            statusText = "Active",
+            usagePercentage = 0.1f
+        )
+        database.agentDao().insertAgent(agent1)
 
-        assertTrue(notifications.isNotEmpty())
-        assertTrue(reminders.isNotEmpty())
+        val snapshot = AgentUsageSnapshotEntity(
+            agentId = "agent_codex",
+            dataSource = "LOCAL_TELEMETRY",
+            requestsUsed = 50,
+            requestsLimit = 500,
+            messagesUsed = 300,
+            messagesLimit = 5000,
+            tokensUsed = 15000
+        )
+        database.agentDao().insertUsageSnapshot(snapshot)
+
+        val summary = agentRepository.usageSummary.first()
+        assertTrue(summary.hasLocalData)
+        assertEquals(50, summary.runsUsed)
+        assertEquals(500, summary.runsTotal)
+        assertEquals(300, summary.messagesUsed)
+        assertEquals(5000, summary.messagesTotal)
+        assertEquals(10, summary.tasksUsed)
+        assertEquals(100, summary.tasksTotal)
+        assertEquals(1, summary.historyPoints.size)
+        assertEquals(0.1f, summary.historyPoints.first(), 0.001f)
     }
 
     @Test
-    fun testSettingsRepositoryToggles() = runBlocking {
-        val repo = SettingsRepository()
-        val profile = repo.userProfile.first()
-        val stats = repo.automationStats.first()
-        val biometric = repo.biometricLock.first()
+    fun integration_andSettings_persistence() = runBlocking {
+        val integration = IntegrationEntity(
+            id = "github",
+            name = "GitHub",
+            category = "Code & CI/CD",
+            isConnected = true,
+            health = IntegrationHealth.OPERATIONAL,
+            lastSync = "Now",
+            primaryMetric = "All CI Passing"
+        )
+        database.integrationDao().insertIntegration(integration)
 
-        assertEquals("AG", profile.initials)
-        assertEquals("Antigravity Founder", profile.name)
-        assertTrue(stats.activeRules > 0)
-        assertTrue(biometric)
-    }
+        val integrations = healthRepository.integrations.first()
+        assertEquals(1, integrations.size)
+        assertEquals("github", integrations.first().id)
+        assertTrue(integrations.first().isConnected)
 
-    @Test
-    fun testAgentProviderAdapters() = runBlocking {
-        val openai = OpenAIAdapter()
-        val anthropic = AnthropicAdapter()
-        val antigravity = AntigravityAdapter()
-        val manual = ManualAgentAdapter()
+        val initialSettings = AppSettingsEntity(
+            id = 1,
+            biometricLock = true,
+            dailyBriefing = false
+        )
+        database.settingsDao().insertOrUpdate(initialSettings)
 
-        assertEquals(AgentProvider.OPENAI, openai.provider)
-        assertEquals(AgentProvider.ANTHROPIC, anthropic.provider)
-        assertEquals(AgentProvider.ANTIGRAVITY, antigravity.provider)
-        assertEquals(AgentProvider.CUSTOM, manual.provider)
-
-        assertTrue(openai.syncQuota())
-        assertTrue(anthropic.syncQuota())
-        assertTrue(antigravity.syncQuota())
-        assertFalse(manual.syncQuota())
+        val bioLock = settingsRepository.biometricLock.first()
+        val briefing = settingsRepository.dailyBriefing.first()
+        assertTrue(bioLock)
+        assertFalse(briefing)
     }
 }

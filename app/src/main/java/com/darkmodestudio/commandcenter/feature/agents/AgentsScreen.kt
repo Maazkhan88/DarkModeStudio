@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.data.repository.AgentRepository
+import com.darkmodestudio.commandcenter.core.data.repository.AgentUsageSummary
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsProgressRail
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsSecondaryOutlineButton
@@ -51,6 +52,7 @@ fun AgentsScreen(
     onAvatarClick: () -> Unit
 ) {
     val agents by agentRepository.agents.collectAsState(initial = emptyList())
+    val usageSummary by agentRepository.usageSummary.collectAsState(initial = AgentUsageSummary())
 
     Column(
         modifier = Modifier
@@ -85,7 +87,7 @@ fun AgentsScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Coding agents & local session usage",
+                            text = "Coding agents & local session telemetry",
                             style = DmsTheme.typography.bodySmall.copy(color = DmsColors.White64)
                         )
                     }
@@ -98,7 +100,7 @@ fun AgentsScreen(
                 }
             }
 
-            // USAGE SUMMARY CARD (Local Session Tracking with transparent label)
+            // USAGE SUMMARY CARD (Real Dynamic Session Metrics)
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -117,55 +119,79 @@ fun AgentsScreen(
                                 style = DmsTheme.typography.h4.copy(fontSize = 15.sp)
                             )
                             Text(
-                                text = "Quota telemetry: Local session",
+                                text = if (usageSummary.hasLocalData) "Live local telemetry" else "No session data yet",
                                 style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                             )
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1.1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                        if (usageSummary.hasLocalData) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                AllocationMetricRow(
-                                    label = "DMS Runs",
-                                    used = "${agentRepository.totalRunsUsed}",
-                                    total = "/ 1,500"
-                                )
-                                AllocationMetricRow(
-                                    label = "Messages",
-                                    used = "8,620",
-                                    total = "/ 20,000"
-                                )
-                                AllocationMetricRow(
-                                    label = "Tasks",
-                                    used = "${agentRepository.totalTasksUsed}",
-                                    total = "/ 600"
-                                )
-                            }
+                                Column(
+                                    modifier = Modifier.weight(1.1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    AllocationMetricRow(
+                                        label = "DMS Runs",
+                                        used = "${usageSummary.runsUsed}",
+                                        total = "/ ${usageSummary.runsTotal}"
+                                    )
+                                    AllocationMetricRow(
+                                        label = "Messages",
+                                        used = "${usageSummary.messagesUsed}",
+                                        total = "/ ${usageSummary.messagesTotal}"
+                                    )
+                                    AllocationMetricRow(
+                                        label = "Tasks",
+                                        used = "${usageSummary.tasksUsed}",
+                                        total = "/ ${usageSummary.tasksTotal}"
+                                    )
+                                }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
 
-                            // Technical 2dp line graph with dotted grid
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .height(84.dp)
-                            ) {
-                                DmsUsageLineGraph(dataPoints = agentRepository.globalHistory)
+                                if (usageSummary.historyPoints.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1.2f)
+                                            .height(84.dp)
+                                    ) {
+                                        DmsUsageLineGraph(dataPoints = usageSummary.historyPoints)
+                                    }
+                                }
                             }
+                        } else {
+                            Text(
+                                text = "Local agent execution logs and snapshot quotas will appear here as coding tasks run.",
+                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                            )
                         }
                     }
                 }
             }
 
             // AGENT CARDS
-            items(agents) { agent ->
-                AgentCardItem(agent = agent)
+            if (agents.isEmpty()) {
+                item {
+                    DmsCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = DmsRadii.ShapeR16,
+                        backgroundColor = DmsColors.Surface01,
+                        padding = 16.dp
+                    ) {
+                        Text(
+                            text = "No agents configured yet. Use 'Manage Agents' to configure CLI bridges.",
+                            style = DmsTheme.typography.caption.copy(color = DmsColors.White64)
+                        )
+                    }
+                }
+            } else {
+                items(agents) { agent ->
+                    AgentCardItem(agent = agent)
+                }
             }
 
             item {
@@ -220,7 +246,6 @@ private fun AgentCardItem(agent: Agent) {
         padding = 14.dp
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Top Row: Icon, Name + Provider, Mode/Speed, Status Capsule
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -281,7 +306,6 @@ private fun AgentCardItem(agent: Agent) {
                 )
             }
 
-            // Current Task
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -306,7 +330,6 @@ private fun AgentCardItem(agent: Agent) {
                 )
             }
 
-            // Metrics: Runs, Messages, Tasks
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -317,7 +340,6 @@ private fun AgentCardItem(agent: Agent) {
                 AgentSubMetric(label = "Tasks", used = "${agent.tasksUsed}", total = "${agent.tasksTotal}")
             }
 
-            // Progress Rail
             DmsProgressRail(
                 progress = agent.usagePercentage,
                 height = 2.dp

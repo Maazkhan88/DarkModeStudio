@@ -27,6 +27,7 @@ import com.darkmodestudio.commandcenter.core.data.repository.AgentRepository
 import com.darkmodestudio.commandcenter.core.data.repository.HealthRepository
 import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
 import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
+import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFilesRepository
 import com.darkmodestudio.commandcenter.core.data.repository.SettingsRepository
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsBottomNavigation
@@ -62,6 +63,7 @@ fun DmsNavHost(
     healthRepository: HealthRepository,
     notificationRepository: NotificationRepository,
     settingsRepository: SettingsRepository,
+    repositoryFilesRepository: RepositoryFilesRepository? = null,
     keystoreCredentialManager: KeystoreCredentialManager,
     syncCoordinator: SyncCoordinator,
     modifier: Modifier = Modifier
@@ -177,6 +179,7 @@ fun DmsNavHost(
                     projectId = projectId,
                     projectRepository = projectRepository,
                     taskRepository = taskRepository,
+                    repositoryFilesRepository = repositoryFilesRepository,
                     onConnectGitHubClick = { showConnectServiceSheet = true },
                     onBackClick = { navController.popBackStack() },
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
@@ -256,7 +259,7 @@ fun DmsNavHost(
             )
         }
 
-        // Global Action Sheet (Screen context aware)
+        // Global Action Sheet
         if (showGlobalActionSheet) {
             GlobalActionSheet(
                 currentRoute = currentRoute,

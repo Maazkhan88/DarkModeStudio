@@ -52,6 +52,32 @@ class GitHubSyncer(
         val result = gitHubConnector.fetchAllTelemetry(storedToken)
 
         when (result.status) {
+            GitHubSyncStatus.NOT_MODIFIED -> {
+                // 304 Not Modified: Remote dataset is completely unchanged.
+                // Preserve all existing projects, activities, metrics, and health state.
+                val existingIntegration = database.integrationDao().getIntegrationById("github")
+                val preservedHealth = existingIntegration?.health ?: IntegrationHealth.OPERATIONAL
+                val preservedMetric = existingIntegration?.primaryMetric ?: "Dataset unchanged (304)"
+
+                val updatedIntegration = IntegrationEntity(
+                    id = "github",
+                    name = "GitHub",
+                    category = "Code & CI/CD",
+                    isConnected = true,
+                    health = preservedHealth,
+                    lastSync = nowFormatted,
+                    lastSuccessfulSync = nowFormatted,
+                    lastError = null,
+                    primaryMetric = preservedMetric
+                )
+                database.integrationDao().insertIntegration(updatedIntegration)
+
+                return@withContext ProviderSyncResult(
+                    provider = SecureProvider.GITHUB,
+                    isSuccess = true,
+                    message = "GitHub telemetry unchanged (304 Not Modified)"
+                )
+            }
             GitHubSyncStatus.AUTH_FAILURE -> {
                 val failedIntegration = IntegrationEntity(
                     id = "github",
@@ -113,7 +139,7 @@ class GitHubSyncer(
             else -> {}
         }
 
-        // 1. Ingest Real Repositories as Real Projects in Room SQLite (NO synthetic dueDate or manualProgressOverride)
+        // 1. Ingest Real Repositories as Real Projects in Room SQLite (NO synthetic fields)
         if (result.repos.isNotEmpty()) {
             val liveProjects = result.repos.map { repo ->
                 val id = repo.name.lowercase().replace(" ", "-")
@@ -121,6 +147,7 @@ class GitHubSyncer(
                 val latestCommit = result.commitsByRepo[repo.fullName]?.firstOrNull()
                 val latestMessage = latestCommit?.commit?.message?.lines()?.firstOrNull()?.take(40) ?: "Active Repository"
                 val exactLastUpdate = DmsTimeFormatter.parseIsoToLocal(repo.pushedAt ?: repo.updatedAt) ?: "Unknown"
+                val createdDate = DmsTimeFormatter.parseIsoToLocalDateOnly(repo.createdAt) ?: DmsTimeFormatter.parseIsoToLocalDateOnly(repo.pushedAt) ?: "Unknown"
 
                 ProjectEntity(
                     id = id,
@@ -128,13 +155,14 @@ class GitHubSyncer(
                     description = repo.description ?: "Repository ${repo.fullName}",
                     iconTag = iconTag,
                     status = ProjectStatus.ON_TRACK,
-                    isMvp = repo.name.contains("SecondMe", ignoreCase = true) || repo.name.contains("DarkModeStudio", ignoreCase = true),
+                    isMvp = false,
                     owner = repo.fullName.substringBefore("/"),
-                    createdAt = DmsTimeFormatter.parseIsoToLocalDateOnly(repo.pushedAt ?: repo.updatedAt) ?: "Unknown",
+                    createdAt = createdDate,
                     dueDate = "",
                     nextMilestone = latestMessage,
                     manualProgressOverride = null,
-                    lastUpdate = exactLastUpdate
+                    lastUpdate = exactLastUpdate,
+                    repositoryFullName = repo.fullName
                 )
             }
             database.projectDao().insertProjects(liveProjects)
@@ -164,7 +192,7 @@ class GitHubSyncer(
             database.projectDao().insertActivities(newActivities)
         }
 
-        // 3. Compute Real Workflows & Health
+        // 3. Compute Real Workflows & Determine Health
         var totalFailing = 0
         var totalPassing = 0
         result.workflowsByRepo.forEach { (_, workflows) ->
@@ -174,8 +202,18 @@ class GitHubSyncer(
             }
         }
 
-        val health = if (totalFailing > 0) IntegrationHealth.DEGRADED else IntegrationHealth.OPERATIONAL
-        val primaryMetric = if (totalFailing > 0) "$totalFailing CI Actions Failing" else "All CI Actions Passing (${result.repos.size} Repos)"
+        val isPartial = result.status == GitHubSyncStatus.PARTIAL_SUCCESS || result.failures.isNotEmpty()
+        val health = when {
+            totalFailing > 0 -> IntegrationHealth.DEGRADED
+            isPartial -> IntegrationHealth.DEGRADED
+            else -> IntegrationHealth.OPERATIONAL
+        }
+
+        val primaryMetric = when {
+            isPartial -> "Partial Sync: ${result.failures.size} subrequests degraded (${result.repos.size} Repos)"
+            totalFailing > 0 -> "$totalFailing CI Actions Failing"
+            else -> "All CI Actions Passing (${result.repos.size} Repos)"
+        }
         val primaryRepoName = result.repos.firstOrNull()?.fullName ?: "Configured GitHub Account"
 
         // 4. Update Integration Entity
@@ -192,10 +230,11 @@ class GitHubSyncer(
         database.integrationDao().insertIntegration(updatedIntegration)
 
         // 5. Update Metrics
+        val openPRCount = result.pullsByRepo.values.flatten().size
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = primaryRepoName),
             IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = nowFormatted),
-            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${result.pullsByRepo.values.flatten().size} open PRs"),
+            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "$openPRCount open PRs"),
             IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "$totalPassing passing / $totalFailing failing")
         )
         database.integrationDao().insertMetrics(metrics)
@@ -219,7 +258,7 @@ class GitHubSyncer(
         ProviderSyncResult(
             provider = SecureProvider.GITHUB,
             isSuccess = true,
-            message = "Live GitHub telemetry synchronized (${result.repos.size} repos, ${newActivities.size} commits)"
+            message = if (isPartial) "GitHub telemetry synced with partial failures (${result.failures.size} failed subrequests)" else "Live GitHub telemetry synchronized (${result.repos.size} repos, ${newActivities.size} commits)"
         )
     }
 }

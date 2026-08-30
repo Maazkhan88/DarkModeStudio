@@ -24,6 +24,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.ProjectBlockerEntit
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectMilestoneEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ReminderEntity
+import com.darkmodestudio.commandcenter.core.database.entity.RepositoryFileEntryEntity
 import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
 import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.flow.Flow
@@ -75,6 +76,9 @@ interface ProjectDao {
     @Transaction
     @Query("SELECT * FROM projects WHERE id = :projectId LIMIT 1")
     fun getProjectWithDetailsFlow(projectId: String): Flow<ProjectWithDetails?>
+
+    @Query("SELECT * FROM projects WHERE id = :projectId LIMIT 1")
+    suspend fun getProjectById(projectId: String): ProjectEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProject(project: ProjectEntity)
@@ -147,6 +151,9 @@ interface AgentDao {
 
     @Query("SELECT * FROM agent_usage_snapshots WHERE agentId = :agentId ORDER BY capturedAt DESC LIMIT 20")
     fun getUsageSnapshotsFlow(agentId: String): Flow<List<AgentUsageSnapshotEntity>>
+
+    @Query("SELECT * FROM agent_usage_snapshots ORDER BY capturedAt DESC")
+    fun getAllUsageSnapshotsFlow(): Flow<List<AgentUsageSnapshotEntity>>
 }
 
 @Dao
@@ -154,6 +161,9 @@ interface IntegrationDao {
     @Transaction
     @Query("SELECT * FROM integrations")
     fun getIntegrationsWithDetailsFlow(): Flow<List<IntegrationWithDetails>>
+
+    @Query("SELECT * FROM integrations WHERE id = :id LIMIT 1")
+    suspend fun getIntegrationById(id: String): IntegrationEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertIntegrations(integrations: List<IntegrationEntity>)
@@ -247,4 +257,22 @@ interface SettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(settings: AppSettingsEntity)
+}
+
+@Dao
+interface RepositoryFileDao {
+    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
+    fun getFilesFlow(repoFullName: String, path: String): Flow<List<RepositoryFileEntryEntity>>
+
+    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
+    suspend fun getFiles(repoFullName: String, path: String): List<RepositoryFileEntryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFiles(files: List<RepositoryFileEntryEntity>)
+
+    @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path")
+    suspend fun deleteFilesForPath(repoFullName: String, path: String)
+
+    @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName")
+    suspend fun deleteAllForRepo(repoFullName: String)
 }

@@ -28,7 +28,8 @@ data class ProjectEntity(
     val developmentWeight: Float = 0.45f,
     val testingWeight: Float = 0.20f,
     val deploymentWeight: Float = 0.20f,
-    val lastUpdate: String = "Just now"
+    val lastUpdate: String = "Just now",
+    val repositoryFullName: String? = null
 )
 
 @Entity(
@@ -120,15 +121,15 @@ data class AgentEntity(
     val provider: AgentProvider,
     val mode: String = "Pro",
     val speed: String = "Fast",
-    val runsUsed: Int,
-    val runsTotal: Int,
-    val messagesUsed: Int,
-    val messagesTotal: Int,
-    val tasksUsed: Int,
-    val tasksTotal: Int,
-    val currentTask: String,
-    val statusText: String,
-    val usagePercentage: Float
+    val runsUsed: Int = 0,
+    val runsTotal: Int = 500,
+    val messagesUsed: Int = 0,
+    val messagesTotal: Int = 5000,
+    val tasksUsed: Int = 0,
+    val tasksTotal: Int = 100,
+    val currentTask: String = "Ready for execution",
+    val statusText: String = "Standby • 0%",
+    val usagePercentage: Float = 0.0f
 )
 
 @Entity(
@@ -295,5 +296,22 @@ data class AppSettingsEntity(
     val taskDeadlines: Boolean = true,
     val agentLimitWarnings: Boolean = true,
     val platformIncidents: Boolean = true,
-    val schemaSeedVersion: Int = 1
+    val schemaSeedVersion: Int = 4
+)
+
+@Entity(
+    tableName = "repository_file_entries",
+    indices = [Index(value = ["repositoryFullName", "path"])]
+)
+data class RepositoryFileEntryEntity(
+    @PrimaryKey val id: String, // "$repositoryFullName:$path:$name"
+    val repositoryFullName: String,
+    val path: String, // parent folder path e.g. "" for root or "app/src"
+    val name: String,
+    val fullPath: String,
+    val type: String, // "file" or "dir"
+    val size: Long = 0,
+    val sha: String = "",
+    val downloadUrl: String? = null,
+    val lastCached: Long = System.currentTimeMillis()
 )

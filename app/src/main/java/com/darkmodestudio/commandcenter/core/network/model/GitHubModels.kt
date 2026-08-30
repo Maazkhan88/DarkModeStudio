@@ -22,6 +22,7 @@ data class GitHubRepoDto(
     val description: String? = null,
     @SerialName("default_branch") val defaultBranch: String = "main",
     @SerialName("open_issues_count") val openIssuesCount: Int = 0,
+    @SerialName("created_at") val createdAt: String? = null,
     @SerialName("pushed_at") val pushedAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 )
@@ -51,8 +52,8 @@ data class GitHubPullDto(
     val number: Int,
     val title: String,
     val state: String,
-    @SerialName("created_at") val createdAt: String,
-    @SerialName("updated_at") val updatedAt: String
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )
 
 @Serializable
@@ -63,8 +64,8 @@ data class GitHubWorkflowRunDto(
     @SerialName("head_sha") val headSha: String? = null,
     val status: String,
     val conclusion: String? = null,
-    @SerialName("created_at") val createdAt: String,
-    @SerialName("updated_at") val updatedAt: String
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )
 
 @Serializable
@@ -100,4 +101,3 @@ data class GitHubContentDto(
     val type: String, // "file" or "dir"
     @SerialName("download_url") val downloadUrl: String? = null
 )
-

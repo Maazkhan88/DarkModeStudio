@@ -49,10 +49,11 @@ data class Project(
     val lastUpdate: String = "Just now",
     val phases: PhaseDistribution = PhaseDistribution(),
     val milestones: List<MilestoneItem> = emptyList(),
-    val totalTasks: Int = 12,
-    val doneTasks: Int = 6,
-    val pendingTasks: Int = 6,
-    val assignedAgents: List<String> = listOf("Codex", "Claude", "Antigravity"),
+    val totalTasks: Int = 0,
+    val doneTasks: Int = 0,
+    val pendingTasks: Int = 0,
+    val assignedAgents: List<String> = emptyList(),
     val blockers: List<ProjectBlocker> = emptyList(),
-    val activities: List<ProjectActivity> = emptyList()
+    val activities: List<ProjectActivity> = emptyList(),
+    val repositoryFullName: String? = null
 )

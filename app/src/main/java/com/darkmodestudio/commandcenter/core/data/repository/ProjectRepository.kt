@@ -20,15 +20,31 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
 
     val projects: Flow<List<Project>> = projectDao?.getProjectsWithDetailsFlow()?.map { list ->
         list.map { it.toDomain() }
-    } ?: flowOf(defaultProjects)
+    } ?: flowOf(emptyList())
 
     fun getProjectFlow(id: String): Flow<Project?> {
         return projectDao?.getProjectWithDetailsFlow(id)?.map { it?.toDomain() }
-            ?: flowOf(defaultProjects.find { it.id == id } ?: defaultProjects.first())
+            ?: flowOf(null)
     }
 
-    fun getProject(id: String): Project? {
-        return defaultProjects.find { it.id == id } ?: defaultProjects.firstOrNull()
+    suspend fun getProject(id: String): Project? {
+        return projectDao?.getProjectById(id)?.let { entity ->
+            Project(
+                id = entity.id,
+                name = entity.name,
+                description = entity.description,
+                iconTag = entity.iconTag,
+                status = entity.status,
+                progress = entity.manualProgressOverride ?: 0f,
+                owner = entity.owner,
+                createdAt = entity.createdAt,
+                dueDate = entity.dueDate,
+                nextMilestone = entity.nextMilestone,
+                isMvp = entity.isMvp,
+                lastUpdate = entity.lastUpdate,
+                repositoryFullName = entity.repositoryFullName
+            )
+        }
     }
 
     suspend fun createProject(
@@ -39,7 +55,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
         dueDate: String,
         nextMilestone: String,
         isMvp: Boolean = false,
-        manualOverride: Float? = null
+        manualOverride: Float? = null,
+        repositoryFullName: String? = null
     ): String {
         val id = name.lowercase().replace(" ", "").replace("-", "") + "_" + System.currentTimeMillis().toString().takeLast(4)
         val entity = ProjectEntity(
@@ -54,7 +71,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
             dueDate = dueDate,
             nextMilestone = nextMilestone,
             manualProgressOverride = manualOverride,
-            lastUpdate = "Just now"
+            lastUpdate = "Just now",
+            repositoryFullName = repositoryFullName
         )
         projectDao?.insertProject(entity)
         return id
@@ -77,7 +95,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
             developmentWeight = project.phases.development,
             testingWeight = project.phases.testing,
             deploymentWeight = project.phases.deployment,
-            lastUpdate = "Just now"
+            lastUpdate = "Just now",
+            repositoryFullName = project.repositoryFullName
         )
         projectDao?.updateProject(entity)
     }
@@ -108,116 +127,34 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
         )
         projectDao?.insertBlockers(listOf(blocker))
     }
-
-    companion object {
-        val defaultProjects = listOf(
-            Project(
-                id = "secondme",
-                name = "SecondMe",
-                description = "Personal AI memory & continuous persona clone",
-                iconTag = "SM",
-                status = ProjectStatus.IN_PROGRESS,
-                progress = 0.54f,
-                owner = "Founder",
-                createdAt = "Aug 01, 2026",
-                dueDate = "Oct 01, 2026",
-                nextMilestone = "User Memory Sync",
-                isMvp = true,
-                lastUpdate = "12m ago",
-                phases = PhaseDistribution(0.15f, 0.45f, 0.20f, 0.20f),
-                milestones = listOf(
-                    MilestoneItem("Architecture", isCompleted = true, isActive = false, date = "Aug 10"),
-                    MilestoneItem("Memory Engine", isCompleted = true, isActive = false, date = "Aug 22"),
-                    MilestoneItem("Sync Layer", isCompleted = false, isActive = true, date = "Sep 05"),
-                    MilestoneItem("Staging v1.0", isCompleted = false, isActive = false, date = "Sep 20")
-                ),
-                totalTasks = 12,
-                doneTasks = 6,
-                pendingTasks = 6,
-                assignedAgents = listOf("Codex", "Claude", "Antigravity"),
-                blockers = listOf(
-                    ProjectBlocker("b1", "Blocked on Cloudflare Workers AI rate-limit tier elevation", "High", "6 hours")
-                ),
-                activities = listOf(
-                    ProjectActivity("a1", "feat: add user memory sync", "Codex", "a1b2c3d", "18m ago"),
-                    ProjectActivity("a2", "Deploy: staging v0.4.2", "Claude", "deployed", "1h ago"),
-                    ProjectActivity("a3", "fix: resolve auth edge case", "Antigravity", "d4e5f6a", "3h ago")
-                )
-            ),
-            Project(
-                id = "ghostcart",
-                name = "GhostCart",
-                description = "Ultra-fast headless commerce checkout system",
-                iconTag = "GC",
-                status = ProjectStatus.ON_TRACK,
-                progress = 0.78f,
-                owner = "Founder",
-                createdAt = "Jul 15, 2026",
-                dueDate = "Sep 15, 2026",
-                nextMilestone = "Production Load Test",
-                isMvp = false,
-                lastUpdate = "4m ago"
-            ),
-            Project(
-                id = "proptree",
-                name = "Proptree",
-                description = "Real estate intelligence graph and deal radar",
-                iconTag = "PT",
-                status = ProjectStatus.WAITING,
-                progress = 0.32f,
-                owner = "Founder",
-                createdAt = "Aug 10, 2026",
-                dueDate = "Nov 10, 2026",
-                nextMilestone = "Data Schema Ingestion",
-                isMvp = false,
-                lastUpdate = "2h ago"
-            ),
-            Project(
-                id = "agstudio",
-                name = "AG Studio",
-                description = "Autonomous coding agent IDE & swarm orchestrator",
-                iconTag = "AG",
-                status = ProjectStatus.ON_TRACK,
-                progress = 0.91f,
-                owner = "Founder",
-                createdAt = "Jun 01, 2026",
-                dueDate = "Sep 05, 2026",
-                nextMilestone = "Release v2.0",
-                isMvp = false,
-                lastUpdate = "1m ago"
-            ),
-            Project(
-                id = "pioneer",
-                name = "Pioneer",
-                description = "Low-latency streaming audio bridge & DSP node",
-                iconTag = "PN",
-                status = ProjectStatus.BLOCKED,
-                progress = 0.15f,
-                owner = "Founder",
-                createdAt = "Aug 20, 2026",
-                dueDate = "Dec 01, 2026",
-                nextMilestone = "Core DSP Pipeline",
-                isMvp = false,
-                lastUpdate = "5h ago"
-            )
-        )
-    }
 }
 
 private fun ProjectWithDetails.toDomain(): Project {
-    val totalTaskCount = tasks.size.coerceAtLeast(1)
     val doneCount = tasks.count { it.status == TaskStatus.DONE }
     val pendingCount = tasks.count { it.status != TaskStatus.DONE }
 
-    val calculated = if (project.manualProgressOverride != null) {
+    val calculatedProgress = if (project.manualProgressOverride != null) {
         project.manualProgressOverride
+    } else if (milestones.isEmpty() && tasks.isEmpty()) {
+        0f
     } else {
         val milestoneProgress = if (milestones.isNotEmpty()) {
             milestones.count { it.isCompleted }.toFloat() / milestones.size
         } else 0f
-        val taskProgress = doneCount.toFloat() / totalTaskCount
-        ((milestoneProgress * 0.5f) + (taskProgress * 0.5f)).coerceIn(0f, 1f)
+        val taskProgress = if (tasks.isNotEmpty()) {
+            doneCount.toFloat() / tasks.size
+        } else 0f
+
+        if (milestones.isNotEmpty() && tasks.isNotEmpty()) {
+            ((milestoneProgress * 0.5f) + (taskProgress * 0.5f)).coerceIn(0f, 1f)
+        } else if (milestones.isNotEmpty()) {
+            milestoneProgress
+        } else {
+            taskProgress
+        }
     }
+
+    val assigned = tasks.mapNotNull { it.assignedAgent }.filter { it.isNotBlank() }.distinct()
 
     return Project(
         id = project.id,
@@ -225,7 +162,7 @@ private fun ProjectWithDetails.toDomain(): Project {
         description = project.description,
         iconTag = project.iconTag,
         status = project.status,
-        progress = calculated,
+        progress = calculatedProgress,
         owner = project.owner,
         createdAt = project.createdAt,
         dueDate = project.dueDate,
@@ -246,10 +183,10 @@ private fun ProjectWithDetails.toDomain(): Project {
                 date = it.date
             )
         },
-        totalTasks = if (tasks.isNotEmpty()) tasks.size else 12,
-        doneTasks = if (tasks.isNotEmpty()) doneCount else 6,
-        pendingTasks = if (tasks.isNotEmpty()) pendingCount else 6,
-        assignedAgents = listOf("Codex", "Claude", "Antigravity"),
+        totalTasks = tasks.size,
+        doneTasks = doneCount,
+        pendingTasks = pendingCount,
+        assignedAgents = assigned,
         blockers = blockers.map {
             ProjectBlocker(
                 id = it.id,
@@ -266,6 +203,7 @@ private fun ProjectWithDetails.toDomain(): Project {
                 hash = it.hash,
                 timestamp = it.timestamp
             )
-        }
+        },
+        repositoryFullName = project.repositoryFullName
     )
 }

@@ -14,8 +14,10 @@ import com.darkmodestudio.commandcenter.core.data.repository.AgentRepository
 import com.darkmodestudio.commandcenter.core.data.repository.HealthRepository
 import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
 import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
+import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFilesRepository
 import com.darkmodestudio.commandcenter.core.data.repository.SettingsRepository
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
+import com.darkmodestudio.commandcenter.core.database.AppDataInitializer
 import com.darkmodestudio.commandcenter.core.database.DmsDatabase
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DarkModeStudioTheme
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
@@ -34,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
         val database = DmsDatabase.getInstance(this)
         val keystoreManager = KeystoreCredentialManager(this)
+        val appDataInitializer = AppDataInitializer(database)
         val syncCoordinator = SyncCoordinator(database, keystoreManager)
 
         val projectRepository = ProjectRepository(database.projectDao())
@@ -42,9 +45,14 @@ class MainActivity : ComponentActivity() {
         val healthRepository = HealthRepository(database.integrationDao())
         val notificationRepository = NotificationRepository(database.notificationDao(), database.reminderDao(), database.settingsDao())
         val settingsRepository = SettingsRepository(database.settingsDao(), database.automationDao())
+        val repositoryFilesRepository = RepositoryFilesRepository(
+            keystoreCredentialManager = keystoreManager,
+            repositoryFileDao = database.repositoryFileDao()
+        )
 
-        // Foreground Sync: Instant Room cached state is displayed immediately, background refresh syncs incrementally
+        // Deterministic startup sequence: initialize structural database defaults, then perform foreground sync
         CoroutineScope(Dispatchers.IO).launch {
+            appDataInitializer.initialize()
             syncCoordinator.syncAll(SyncMode.FOREGROUND)
         }
 
@@ -66,6 +74,7 @@ class MainActivity : ComponentActivity() {
                         healthRepository = healthRepository,
                         notificationRepository = notificationRepository,
                         settingsRepository = settingsRepository,
+                        repositoryFilesRepository = repositoryFilesRepository,
                         keystoreCredentialManager = keystoreManager,
                         syncCoordinator = syncCoordinator
                     )

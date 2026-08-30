@@ -19,13 +19,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,12 +45,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
+import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFileEntry
+import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFilesRepository
+import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFilesState
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
-import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsFilterCapsule
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsHeroCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsMilestoneTimeline
+import com.darkmodestudio.commandcenter.core.designsystem.component.DmsPrimaryButton
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsProgressRail
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsProgressRing
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsStatusCapsule
@@ -55,6 +64,8 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
+import com.darkmodestudio.commandcenter.core.model.Task
+import com.darkmodestudio.commandcenter.core.model.TaskPriority
 import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -64,6 +75,7 @@ fun ProjectDetailScreen(
     projectId: String,
     projectRepository: ProjectRepository,
     taskRepository: TaskRepository? = null,
+    repositoryFilesRepository: RepositoryFilesRepository? = null,
     onConnectGitHubClick: (() -> Unit)? = null,
     onBackClick: () -> Unit,
     onNotificationClick: () -> Unit,
@@ -79,7 +91,18 @@ fun ProjectDetailScreen(
         it.projectId.equals(projectId, ignoreCase = true) || it.projectName.equals(project.name, ignoreCase = true)
     }
 
+    val filesState by (repositoryFilesRepository?.filesState ?: flowOf(RepositoryFilesState.Disconnected)).collectAsState(initial = RepositoryFilesState.Disconnected)
+
     var selectedTab by remember { mutableStateOf("Overview") }
+
+    LaunchedEffect(selectedTab, project.repositoryFullName) {
+        if (selectedTab == "Files" && repositoryFilesRepository != null) {
+            val targetRepo = project.repositoryFullName ?: project.name
+            if (targetRepo.isNotBlank()) {
+                repositoryFilesRepository.loadDirectory(targetRepo)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -189,16 +212,16 @@ fun ProjectDetailScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            PhaseItem("Planning", "15%", isComplete = true)
-                            PhaseItem("Development", "45%", isComplete = true)
-                            PhaseItem("Testing", "20%", isComplete = project.progress > 0.6f)
-                            PhaseItem("Deployment", "20%", isComplete = project.progress > 0.85f)
+                            PhaseItem("Planning", "15%", isComplete = project.progress >= 0.15f)
+                            PhaseItem("Development", "45%", isComplete = project.progress >= 0.60f)
+                            PhaseItem("Testing", "20%", isComplete = project.progress >= 0.80f)
+                            PhaseItem("Deployment", "20%", isComplete = project.progress >= 0.95f)
                         }
                     }
                 }
             }
 
-            // TABS: Overview / Tasks / Activity / Files (Interactive View Switching)
+            // TABS: Overview / Tasks / Activity / Files
             item {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -230,7 +253,14 @@ fun ProjectDetailScreen(
                                     text = "Milestones",
                                     style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
                                 )
-                                DmsMilestoneTimeline(milestones = project.milestones)
+                                if (project.milestones.isEmpty()) {
+                                    Text(
+                                        text = "No milestones defined yet",
+                                        style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                    )
+                                } else {
+                                    DmsMilestoneTimeline(milestones = project.milestones)
+                                }
                             }
                         }
                     }
@@ -258,10 +288,10 @@ fun ProjectDetailScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        val totalCount = if (projectTasks.isNotEmpty()) projectTasks.size else project.totalTasks
-                                        val doneCount = if (projectTasks.isNotEmpty()) projectTasks.count { it.status == TaskStatus.DONE } else project.doneTasks
+                                        val totalCount = projectTasks.size
+                                        val doneCount = projectTasks.count { it.status == TaskStatus.DONE }
                                         val pendingCount = totalCount - doneCount
-                                        val ratio = if (totalCount > 0) doneCount.toFloat() / totalCount else 0.5f
+                                        val ratio = if (totalCount > 0) doneCount.toFloat() / totalCount else 0f
 
                                         DmsProgressRing(
                                             progress = ratio,
@@ -294,7 +324,7 @@ fun ProjectDetailScreen(
                                 }
                             }
 
-                            // Assigned Agents Card
+                            // Assigned Agents Card (Derived strictly from real task assignments)
                             DmsCard(
                                 modifier = Modifier.weight(1f),
                                 shape = DmsRadii.ShapeR18,
@@ -303,12 +333,25 @@ fun ProjectDetailScreen(
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
-                                        text = "Agents",
+                                        text = "Assigned Agents",
                                         style = DmsTheme.typography.label.copy(fontWeight = FontWeight.SemiBold)
                                     )
-                                    AgentUsageRow(name = "Codex", percent = 0.68f)
-                                    AgentUsageRow(name = "Claude", percent = 0.82f)
-                                    AgentUsageRow(name = "Antigravity", percent = 0.41f)
+                                    if (project.assignedAgents.isEmpty()) {
+                                        Text(
+                                            text = "No agents assigned",
+                                            style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                        )
+                                    } else {
+                                        project.assignedAgents.forEach { agentName ->
+                                            Text(
+                                                text = "• $agentName",
+                                                style = DmsTheme.typography.caption.copy(
+                                                    color = DmsColors.White92,
+                                                    fontSize = 11.sp
+                                                )
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -351,59 +394,61 @@ fun ProjectDetailScreen(
                         }
                     }
 
-                    // RECENT ACTIVITY FEED with exact Date and Time
-                    item {
-                        DmsCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = DmsRadii.ShapeR18,
-                            backgroundColor = DmsColors.Surface01,
-                            padding = 14.dp
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(
-                                    text = "Recent Activity",
-                                    style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
-                                )
+                    // RECENT ACTIVITY FEED
+                    if (project.activities.isNotEmpty()) {
+                        item {
+                            DmsCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = DmsRadii.ShapeR18,
+                                backgroundColor = DmsColors.Surface01,
+                                padding = 14.dp
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(
+                                        text = "Recent Activity",
+                                        style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
+                                    )
 
-                                project.activities.forEach { activity ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = activity.title,
-                                                style = DmsTheme.typography.bodySmall.copy(
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = DmsColors.White92
+                                    project.activities.forEach { activity ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = activity.title,
+                                                    style = DmsTheme.typography.bodySmall.copy(
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = DmsColors.White92
+                                                    )
                                                 )
-                                            )
+                                                Text(
+                                                    text = "${activity.author} • ${activity.hash ?: ""}",
+                                                    style = DmsTheme.typography.caption.copy(
+                                                        fontSize = 10.sp,
+                                                        color = DmsColors.White48
+                                                    )
+                                                )
+                                            }
                                             Text(
-                                                text = "${activity.author} • ${activity.hash ?: ""}",
+                                                text = activity.timestamp,
                                                 style = DmsTheme.typography.caption.copy(
-                                                    fontSize = 10.sp,
-                                                    color = DmsColors.White48
+                                                    fontSize = 9.5.sp,
+                                                    color = DmsColors.White32
                                                 )
                                             )
                                         }
-                                        Text(
-                                            text = activity.timestamp,
-                                            style = DmsTheme.typography.caption.copy(
-                                                fontSize = 9.5.sp,
-                                                color = DmsColors.White32
-                                            )
-                                        )
                                     }
                                 }
                             }
                         }
                     }
 
-                    // NEXT ACTIONS TIMELINE
+                    // NEXT ACTIONS TIMELINE (Derived strictly from real pending project tasks)
                     item {
                         DmsCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -417,28 +462,23 @@ fun ProjectDetailScreen(
                                     style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
                                 )
 
-                                val nextActions = listOf(
-                                    TimeRailItem(
-                                        time = "06:00 PM",
-                                        title = "Deploy v1.6.1 with Keystore security",
-                                        isCurrent = true,
-                                        agent = "Antigravity"
-                                    ),
-                                    TimeRailItem(
-                                        time = "07:30 PM",
-                                        title = "Credential Manager sign-in lifecycle",
-                                        isCurrent = false,
-                                        agent = "Codex"
-                                    ),
-                                    TimeRailItem(
-                                        time = "Aug 31",
-                                        title = "User auth edge benchmark review",
-                                        isCurrent = false,
-                                        agent = "Claude"
+                                val pendingTasks = projectTasks.filter { it.status != TaskStatus.DONE }
+                                if (pendingTasks.isEmpty()) {
+                                    Text(
+                                        text = "No upcoming actions",
+                                        style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                                     )
-                                )
-
-                                DmsVerticalTimeRail(items = nextActions)
+                                } else {
+                                    val nextActions = pendingTasks.take(4).mapIndexed { index, task ->
+                                        TimeRailItem(
+                                            time = task.dueTime,
+                                            title = task.title,
+                                            isCurrent = index == 0,
+                                            agent = task.assignedAgent
+                                        )
+                                    }
+                                    DmsVerticalTimeRail(items = nextActions)
+                                }
                             }
                         }
                     }
@@ -460,7 +500,7 @@ fun ProjectDetailScreen(
 
                                 if (projectTasks.isEmpty()) {
                                     Text(
-                                        text = "No tasks created for this project yet.",
+                                        text = "0 tasks — no tasks created for this project yet.",
                                         style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                                     )
                                 } else {
@@ -493,34 +533,41 @@ fun ProjectDetailScreen(
                                     text = "Live Activity & Commit Stream",
                                     style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
                                 )
-                                project.activities.forEach { activity ->
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(DmsRadii.ShapeR10)
-                                            .background(DmsColors.Surface02)
-                                            .padding(10.dp)
-                                    ) {
-                                        Text(
-                                            text = activity.title,
-                                            style = DmsTheme.typography.bodySmall.copy(
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = DmsColors.White
-                                            )
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                if (project.activities.isEmpty()) {
+                                    Text(
+                                        text = "No recent activity recorded for this project.",
+                                        style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                    )
+                                } else {
+                                    project.activities.forEach { activity ->
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(DmsRadii.ShapeR10)
+                                                .background(DmsColors.Surface02)
+                                                .padding(10.dp)
                                         ) {
                                             Text(
-                                                text = "Author: ${activity.author} • Commit ${activity.hash ?: ""}",
-                                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                                text = activity.title,
+                                                style = DmsTheme.typography.bodySmall.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = DmsColors.White
+                                                )
                                             )
-                                            Text(
-                                                text = activity.timestamp,
-                                                style = DmsTheme.typography.caption.copy(color = DmsColors.White64)
-                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "Author: ${activity.author} • Commit ${activity.hash ?: ""}",
+                                                    style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                                )
+                                                Text(
+                                                    text = activity.timestamp,
+                                                    style = DmsTheme.typography.caption.copy(color = DmsColors.White64)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -538,64 +585,177 @@ fun ProjectDetailScreen(
                             padding = 14.dp
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(
-                                    text = "Repository Tree (main)",
-                                    style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
-                                )
-
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(DmsRadii.ShapeR12)
-                                        .background(DmsColors.Surface02)
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Folder,
-                                            contentDescription = null,
-                                            tint = DmsColors.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = "app / src / main / java",
-                                            style = DmsTheme.typography.caption.copy(
-                                                color = DmsColors.White,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        )
-                                    }
-
-                                    listOf(
-                                        "core/database/DmsDatabase.kt",
-                                        "core/security/KeystoreCredentialManager.kt",
-                                        "core/sync/SyncCoordinator.kt",
-                                        "feature/home/HomeScreen.kt",
-                                        "feature/execution/ExecutionScreen.kt",
-                                        "build.gradle.kts"
-                                    ).forEach { file ->
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp)
+                                    Text(
+                                        text = "Repository Contents",
+                                        style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
+                                    )
+                                    if (filesState is RepositoryFilesState.Loaded) {
+                                        IconButton(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    repositoryFilesRepository?.refresh()
+                                                }
+                                            },
+                                            modifier = Modifier.size(24.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Outlined.Description,
+                                                imageVector = Icons.Outlined.Refresh,
+                                                contentDescription = "Refresh",
+                                                tint = DmsColors.White64,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                when (val state = filesState) {
+                                    is RepositoryFilesState.Disconnected -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(DmsRadii.ShapeR12)
+                                                .background(DmsColors.Surface02)
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Lock,
                                                 contentDescription = null,
                                                 tint = DmsColors.White64,
-                                                modifier = Modifier.size(14.dp)
+                                                modifier = Modifier.size(24.dp)
                                             )
                                             Text(
-                                                text = file,
-                                                style = DmsTheme.typography.caption.copy(
-                                                    fontSize = 11.sp,
-                                                    color = DmsColors.White80
+                                                text = "Repository files unavailable — connect GitHub",
+                                                style = DmsTheme.typography.bodySmall.copy(
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = DmsColors.White
                                                 )
                                             )
+                                            Text(
+                                                text = "Sign in to browse live repository tree and branches.",
+                                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                            )
+                                            onConnectGitHubClick?.let {
+                                                DmsPrimaryButton(
+                                                    text = "Connect GitHub",
+                                                    onClick = it,
+                                                    modifier = Modifier.height(36.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    is RepositoryFilesState.Loading -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(100.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                color = DmsColors.White,
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                        }
+                                    }
+                                    is RepositoryFilesState.Error -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(DmsRadii.ShapeR12)
+                                                .background(DmsColors.Surface02)
+                                                .padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Failed to load repository files",
+                                                style = DmsTheme.typography.bodySmall.copy(
+                                                    color = DmsColors.White,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            )
+                                            Text(
+                                                text = state.message,
+                                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                            )
+                                            DmsPrimaryButton(
+                                                text = "Retry",
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        repositoryFilesRepository?.refresh()
+                                                    }
+                                                },
+                                                modifier = Modifier.height(32.dp)
+                                            )
+                                        }
+                                    }
+                                    is RepositoryFilesState.Loaded -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(DmsRadii.ShapeR12)
+                                                .background(DmsColors.Surface02)
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            // Navigation header & Breadcrumbs
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (state.path.isNotBlank()) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            coroutineScope.launch {
+                                                                repositoryFilesRepository?.navigateUp()
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                                            contentDescription = "Up",
+                                                            tint = DmsColors.White,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Text(
+                                                    text = if (state.path.isBlank()) "${state.repository} (${state.branch})" else "${state.repository} / ${state.path}",
+                                                    style = DmsTheme.typography.caption.copy(
+                                                        color = DmsColors.White,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                )
+                                            }
+
+                                            if (state.entries.isEmpty()) {
+                                                Text(
+                                                    text = "Empty directory",
+                                                    style = DmsTheme.typography.caption.copy(color = DmsColors.White48),
+                                                    modifier = Modifier.padding(vertical = 8.dp)
+                                                )
+                                            } else {
+                                                state.entries.forEach { entry ->
+                                                    RepositoryFileItem(
+                                                        entry = entry,
+                                                        onClick = {
+                                                            if (entry.isDirectory) {
+                                                                coroutineScope.launch {
+                                                                    repositoryFilesRepository?.navigateTo(entry.name)
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -613,8 +773,64 @@ fun ProjectDetailScreen(
 }
 
 @Composable
+private fun RepositoryFileItem(
+    entry: RepositoryFileEntry,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(DmsRadii.ShapeR8)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = if (entry.isDirectory) Icons.Outlined.Folder else Icons.Outlined.Description,
+                contentDescription = null,
+                tint = if (entry.isDirectory) DmsColors.White else DmsColors.White64,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = entry.name,
+                style = DmsTheme.typography.caption.copy(
+                    fontSize = 11.sp,
+                    color = if (entry.isDirectory) DmsColors.White else DmsColors.White80,
+                    fontWeight = if (entry.isDirectory) FontWeight.SemiBold else FontWeight.Normal
+                ),
+                maxLines = 1
+            )
+        }
+
+        if (!entry.isDirectory && entry.size > 0) {
+            Text(
+                text = formatFileSize(entry.size),
+                style = DmsTheme.typography.caption.copy(
+                    fontSize = 9.sp,
+                    color = DmsColors.White32
+                )
+            )
+        }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> String.format(java.util.Locale.US, "%.1f MB", bytes.toFloat() / (1024 * 1024))
+    }
+}
+
+@Composable
 private fun ProjectTaskItem(
-    task: com.darkmodestudio.commandcenter.core.model.Task,
+    task: Task,
     onToggle: () -> Unit
 ) {
     val isDone = task.status == TaskStatus.DONE
@@ -720,32 +936,5 @@ private fun PhaseItem(name: String, percentage: String, isComplete: Boolean) {
                 color = DmsColors.White32
             )
         )
-    }
-}
-
-@Composable
-private fun AgentUsageRow(name: String, percent: Float) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = name,
-                style = DmsTheme.typography.caption.copy(
-                    fontSize = 10.sp,
-                    color = DmsColors.White80
-                )
-            )
-            Text(
-                text = "${(percent * 100).toInt()}%",
-                style = DmsTheme.typography.caption.copy(
-                    fontSize = 10.sp,
-                    color = DmsColors.White
-                )
-            )
-        }
-        Spacer(modifier = Modifier.height(2.dp))
-        DmsProgressRail(progress = percent, height = 2.dp)
     }
 }
