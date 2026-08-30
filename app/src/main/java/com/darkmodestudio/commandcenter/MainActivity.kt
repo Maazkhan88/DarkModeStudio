@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val database = DmsDatabase.getInstance(this)
-        val keystoreManager = KeystoreCredentialManager()
+        val keystoreManager = KeystoreCredentialManager(this)
         val syncCoordinator = SyncCoordinator(database, keystoreManager)
 
         val projectRepository = ProjectRepository(database.projectDao())

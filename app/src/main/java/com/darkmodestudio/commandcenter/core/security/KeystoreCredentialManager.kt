@@ -1,7 +1,9 @@
 package com.darkmodestudio.commandcenter.core.security
 
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Base64
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -36,7 +38,7 @@ data class EncryptedPayload(
     }
 }
 
-class KeystoreCredentialManager {
+class KeystoreCredentialManager(private val context: Context? = null) {
 
     private val keyStore: KeyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply {
         load(null)
@@ -85,10 +87,57 @@ class KeystoreCredentialManager {
         return String(plaintextBytes, Charsets.UTF_8)
     }
 
+    fun saveSecret(key: String, secret: String) {
+        val ctx = context ?: return
+        try {
+            val payload = encrypt(secret)
+            val cipherBase64 = Base64.encodeToString(payload.ciphertext, Base64.NO_WRAP)
+            val ivBase64 = Base64.encodeToString(payload.iv, Base64.NO_WRAP)
+
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("${key}_cipher", cipherBase64)
+                .putString("${key}_iv", ivBase64)
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getSecret(key: String): String? {
+        val ctx = context ?: return null
+        return try {
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val cipherBase64 = prefs.getString("${key}_cipher", null) ?: return null
+            val ivBase64 = prefs.getString("${key}_iv", null) ?: return null
+
+            val ciphertext = Base64.decode(cipherBase64, Base64.NO_WRAP)
+            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
+
+            decrypt(EncryptedPayload(ciphertext, iv))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun hasSecret(key: String): Boolean {
+        val ctx = context ?: return false
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.contains("${key}_cipher")
+    }
+
+    fun deleteSecret(key: String) {
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("${key}_cipher")
+            .remove("${key}_iv")
+            .apply()
+    }
+
     companion object {
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "DmsMasterKey_v1"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
+        private const val PREFS_NAME = "dms_secure_credentials_store"
     }
 }

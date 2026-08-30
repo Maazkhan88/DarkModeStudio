@@ -19,16 +19,19 @@ class CloudflareSyncer(
     override val provider: SecureProvider = SecureProvider.CLOUDFLARE
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
-        val result = cloudflareConnector.fetchTelemetry("mock_or_stored_token")
+        val storedToken = keystoreCredentialManager.getSecret("token_cloudflare")
+        val isConnected = !storedToken.isNullOrBlank()
+
+        val tokenToUse = storedToken ?: "preview_mode_token"
+        val result = cloudflareConnector.fetchTelemetry(tokenToUse)
 
         val nowFormatted = "Just now"
 
-        // Update Cloudflare Integration
         val integration = IntegrationEntity(
             id = "cloudflare",
             name = "Cloudflare",
             category = "Edge & Infrastructure",
-            isConnected = true,
+            isConnected = isConnected,
             health = IntegrationHealth.OPERATIONAL,
             lastSync = nowFormatted,
             lastSuccessfulSync = nowFormatted,
@@ -36,7 +39,6 @@ class CloudflareSyncer(
         )
         database.integrationDao().insertIntegration(integration)
 
-        // Update Cloudflare Metrics
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "cloudflare", label = "Daily Requests", value = result.totalRequestsLast24h),
             IntegrationMetricEntity(integrationId = "cloudflare", label = "Error Rate", value = "${result.errorRate} (nominal)"),

@@ -3,6 +3,7 @@ package com.darkmodestudio.commandcenter.feature.health
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +50,9 @@ import com.darkmodestudio.commandcenter.core.model.IntegrationItem
 fun PlatformHealthScreen(
     healthRepository: HealthRepository,
     onNotificationClick: () -> Unit,
-    onAvatarClick: () -> Unit
+    onAvatarClick: () -> Unit,
+    onConnectServiceClick: ((String) -> Unit)? = null,
+    onSyncNowClick: (() -> Unit)? = null
 ) {
     val integrations by healthRepository.integrations.collectAsState(initial = emptyList())
     val summary = healthRepository.summary
@@ -148,7 +151,10 @@ fun PlatformHealthScreen(
 
             // INTEGRATION CARDS
             items(integrations) { item ->
-                IntegrationDetailCard(item = item)
+                IntegrationDetailCard(
+                    item = item,
+                    onClick = { onConnectServiceClick?.invoke(item.id) }
+                )
             }
 
             item {
@@ -180,7 +186,10 @@ private fun HealthCountCol(count: String, label: String) {
 }
 
 @Composable
-private fun IntegrationDetailCard(item: IntegrationItem) {
+private fun IntegrationDetailCard(
+    item: IntegrationItem,
+    onClick: (() -> Unit)? = null
+) {
     val nodeStyle = when (item.health) {
         IntegrationHealth.OPERATIONAL -> NodeStyle.SOLID
         IntegrationHealth.DEGRADED -> NodeStyle.DOUBLE_RING
@@ -189,7 +198,9 @@ private fun IntegrationDetailCard(item: IntegrationItem) {
     }
 
     DmsCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = onClick != null) { onClick?.invoke() },
         shape = DmsRadii.ShapeR18,
         backgroundColor = DmsColors.Surface01,
         padding = 14.dp

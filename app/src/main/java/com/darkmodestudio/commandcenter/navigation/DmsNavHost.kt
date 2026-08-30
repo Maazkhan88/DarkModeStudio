@@ -32,6 +32,7 @@ import com.darkmodestudio.commandcenter.core.designsystem.component.DmsBottomNav
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.sync.SyncCoordinator
+import com.darkmodestudio.commandcenter.core.sync.SyncMode
 import com.darkmodestudio.commandcenter.feature.agents.AgentsScreen
 import com.darkmodestudio.commandcenter.feature.connectstack.ConnectStackScreen
 import com.darkmodestudio.commandcenter.feature.execution.ExecutionScreen
@@ -137,7 +138,8 @@ fun DmsNavHost(
                         navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                    }
+                    },
+                    onConnectServiceClick = { showConnectServiceSheet = true }
                 )
             }
 
@@ -182,7 +184,13 @@ fun DmsNavHost(
                 PlatformHealthScreen(
                     healthRepository = healthRepository,
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
-                    onAvatarClick = { navController.navigate(Screen.Settings.route) }
+                    onAvatarClick = { navController.navigate(Screen.Settings.route) },
+                    onConnectServiceClick = { showConnectServiceSheet = true },
+                    onSyncNowClick = {
+                        coroutineScope.launch {
+                            syncCoordinator.syncAll(SyncMode.MANUAL)
+                        }
+                    }
                 )
             }
 
@@ -286,7 +294,9 @@ fun DmsNavHost(
                 onDismissRequest = { showConnectServiceSheet = false },
                 onSubmit = { provider, token, alias ->
                     coroutineScope.launch {
-                        keystoreCredentialManager.encrypt(token)
+                        val key = "token_" + provider.name.lowercase()
+                        keystoreCredentialManager.saveSecret(key, token)
+                        syncCoordinator.syncAll(SyncMode.MANUAL)
                     }
                 }
             )

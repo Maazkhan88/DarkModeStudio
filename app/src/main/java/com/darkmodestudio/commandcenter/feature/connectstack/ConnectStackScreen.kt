@@ -57,7 +57,8 @@ data class ConnectableService(
 
 @Composable
 fun ConnectStackScreen(
-    onContinueClick: () -> Unit
+    onContinueClick: () -> Unit,
+    onConnectServiceClick: ((String) -> Unit)? = null
 ) {
     val services = remember {
         listOf(
@@ -183,6 +184,7 @@ fun ConnectStackScreen(
                                     .background(DmsColors.White)
                                     .clickable {
                                         connectedState[service.id] = true
+                                        onConnectServiceClick?.invoke(service.id)
                                     }
                                     .padding(horizontal = 12.dp),
                                 contentAlignment = Alignment.Center

@@ -20,42 +20,49 @@ class GitHubSyncer(
 
     override val provider: SecureProvider = SecureProvider.GITHUB
 
-    // Target repos mapping to local project IDs
-    private val repoProjectMap = mapOf(
-        "darkmodestudio/core" to "secondme",
-        "darkmodestudio/secondme" to "secondme",
-        "darkmodestudio/ghostcart" to "ghostcart",
-        "darkmodestudio/agstudio" to "agstudio",
-        "darkmodestudio/pioneer" to "pioneer"
-    )
-
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
-        val targetRepos = listOf(
-            "darkmodestudio" to "core",
-            "darkmodestudio" to "ghostcart"
-        )
+        val storedToken = keystoreCredentialManager.getSecret("token_github")
+        val isTokenPresent = !storedToken.isNullOrBlank()
 
-        // Attempt telemetry fetch (mock/fallback if no live token yet stored)
-        val result = gitHubConnector.fetchAllTelemetry("mock_or_stored_token", targetRepos)
-
-        if (!result.isSuccess && result.errorMessage?.contains("401") == true) {
-            // Update integration health to AUTH_REQUIRED without failing app refresh
-            val existing = database.integrationDao()
+        if (!isTokenPresent) {
+            val isConnected = keystoreCredentialManager.hasSecret("token_github")
             return@withContext ProviderSyncResult(
                 provider = SecureProvider.GITHUB,
-                isSuccess = false,
-                message = "GitHub Personal Access Token required"
+                isSuccess = true,
+                message = "GitHub waiting for PAT credential (offline mode active)"
             )
         }
 
-        // Execute Room transaction
+        // Fetch User Repositories with live token
+        val liveResult = gitHubConnector.fetchAllTelemetry(storedToken!!)
+
+        if (!liveResult.isSuccess && liveResult.errorMessage?.contains("401") == true) {
+            val integration = IntegrationEntity(
+                id = "github",
+                name = "GitHub",
+                category = "Code & CI/CD",
+                isConnected = false,
+                health = IntegrationHealth.DEGRADED,
+                lastSync = "Auth Error",
+                lastSuccessfulSync = "Pending Auth",
+                primaryMetric = "Invalid Token (401)"
+            )
+            database.integrationDao().insertIntegration(integration)
+
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.GITHUB,
+                isSuccess = false,
+                message = "Invalid or expired GitHub Personal Access Token"
+            )
+        }
+
         val nowFormatted = "Just now"
 
         // 1. Ingest Commits into Project Activities
         val newActivities = mutableListOf<ProjectActivityEntity>()
-        result.commitsByRepo.forEach { (repoKey, commits) ->
-            val projectId = repoProjectMap[repoKey] ?: "secondme"
-            commits.take(3).forEach { commitDto ->
+        liveResult.commitsByRepo.forEach { (repoKey, commits) ->
+            val projectId = if (repoKey.contains("ghostcart", ignoreCase = true)) "ghostcart" else "secondme"
+            commits.take(5).forEach { commitDto ->
                 newActivities.add(
                     ProjectActivityEntity(
                         id = "gh_" + commitDto.sha.take(8),
@@ -75,7 +82,7 @@ class GitHubSyncer(
         // 2. Compute Workflows & Health
         var totalFailing = 0
         var totalPassing = 0
-        result.workflowsByRepo.forEach { (_, workflows) ->
+        liveResult.workflowsByRepo.forEach { (_, workflows) ->
             workflows.workflowRuns.forEach { run ->
                 if (run.conclusion == "failure") totalFailing++
                 else if (run.conclusion == "success") totalPassing++
@@ -83,7 +90,9 @@ class GitHubSyncer(
         }
 
         val health = if (totalFailing > 0) IntegrationHealth.DEGRADED else IntegrationHealth.OPERATIONAL
-        val primaryMetric = if (totalFailing > 0) "$totalFailing CI Workflows Failing" else "All CI Actions Passing"
+        val primaryMetric = if (totalFailing > 0) "$totalFailing CI Actions Failing" else "All CI Actions Passing"
+
+        val primaryRepoName = liveResult.repos.firstOrNull()?.fullName ?: "darkmodestudio/core"
 
         // 3. Update Integration Entity
         val updatedIntegration = IntegrationEntity(
@@ -100,10 +109,10 @@ class GitHubSyncer(
 
         // 4. Update Metrics
         val metrics = listOf(
-            IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = "darkmodestudio/core"),
+            IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = primaryRepoName),
             IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = "Live (main)"),
-            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${result.pullsByRepo.values.flatten().size.coerceAtLeast(3)} review required"),
-            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "${totalPassing.coerceAtLeast(12)} passing / $totalFailing failing")
+            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${liveResult.pullsByRepo.values.flatten().size} open PRs"),
+            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "$totalPassing passing / $totalFailing failing")
         )
         database.integrationDao().insertMetrics(metrics)
 
@@ -126,7 +135,7 @@ class GitHubSyncer(
         ProviderSyncResult(
             provider = SecureProvider.GITHUB,
             isSuccess = true,
-            message = "GitHub telemetry synchronized with Room SQLite"
+            message = "Live GitHub telemetry synchronized (${liveResult.repos.size} repos, ${liveResult.commitsByRepo.values.flatten().size} commits)"
         )
     }
 }
