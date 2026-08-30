@@ -56,7 +56,7 @@ class SeedSyncRaceTest {
         // 1. App settings must exist
         val settings = database.settingsDao().getSettings()
         assertNotNull(settings)
-        assertEquals(4, settings!!.schemaSeedVersion)
+        assertEquals(5, settings!!.schemaSeedVersion)
 
         // 2. Zero fake projects created
         val projectCount = database.projectDao().getProjectCount()

@@ -72,7 +72,7 @@ class RepositoryFilesRepository(
 
         // 1. Check local Room cache first unless force refresh
         if (!forceRefresh && repositoryFileDao != null) {
-            val cached = repositoryFileDao.getFiles(repoFullName, path)
+            val cached = repositoryFileDao.getFiles(repoFullName, currentBranch, path)
             if (cached.isNotEmpty()) {
                 _filesState.value = RepositoryFilesState.Loaded(
                     repository = repoFullName,
@@ -100,12 +100,13 @@ class RepositoryFilesRepository(
                     )
                 }
 
-                // Persist to Room
+                // Persist to Room with branch scope
                 if (repositoryFileDao != null) {
                     val entities = result.entries.map { dto ->
                         RepositoryFileEntryEntity(
-                            id = "$repoFullName:${path}:${dto.name}",
+                            id = "$repoFullName:$currentBranch:${path}:${dto.name}",
                             repositoryFullName = repoFullName,
+                            branch = currentBranch,
                             path = path,
                             name = dto.name,
                             fullPath = dto.path,
@@ -116,7 +117,7 @@ class RepositoryFilesRepository(
                             lastCached = System.currentTimeMillis()
                         )
                     }
-                    repositoryFileDao.deleteFilesForPath(repoFullName, path)
+                    repositoryFileDao.deleteFilesForPath(repoFullName, currentBranch, path)
                     repositoryFileDao.insertFiles(entities)
                 }
 

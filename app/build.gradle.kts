@@ -14,10 +14,15 @@ android {
         applicationId = "com.darkmodestudio.commandcenter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.6.3"
+        versionCode = 3
+        versionName = "1.6.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 
     buildTypes {
@@ -38,6 +43,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
     }
 }
 

@@ -270,17 +270,17 @@ interface SettingsDao {
 
 @Dao
 interface RepositoryFileDao {
-    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
-    fun getFilesFlow(repoFullName: String, path: String): Flow<List<RepositoryFileEntryEntity>>
+    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND branch = :branch AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
+    fun getFilesFlow(repoFullName: String, branch: String, path: String): Flow<List<RepositoryFileEntryEntity>>
 
-    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
-    suspend fun getFiles(repoFullName: String, path: String): List<RepositoryFileEntryEntity>
+    @Query("SELECT * FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND branch = :branch AND path = :path ORDER BY CASE type WHEN 'dir' THEN 1 ELSE 2 END, name ASC")
+    suspend fun getFiles(repoFullName: String, branch: String, path: String): List<RepositoryFileEntryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFiles(files: List<RepositoryFileEntryEntity>)
 
-    @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND path = :path")
-    suspend fun deleteFilesForPath(repoFullName: String, path: String)
+    @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName AND branch = :branch AND path = :path")
+    suspend fun deleteFilesForPath(repoFullName: String, branch: String, path: String)
 
     @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName")
     suspend fun deleteAllForRepo(repoFullName: String)

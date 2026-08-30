@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.darkmodestudio.commandcenter.core.model.ProjectStatus
 import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
 import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFileEntry
@@ -212,14 +213,21 @@ fun ProjectDetailScreen(
                         )
 
                         // 4 Phases Distribution
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            PhaseItem("Planning", "15%", isComplete = project.progress >= 0.15f)
-                            PhaseItem("Development", "45%", isComplete = project.progress >= 0.60f)
-                            PhaseItem("Testing", "20%", isComplete = project.progress >= 0.80f)
-                            PhaseItem("Deployment", "20%", isComplete = project.progress >= 0.95f)
+                        if (project.phases.isConfigured && project.status != ProjectStatus.IMPORTED) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                PhaseItem("Planning", "${(project.phases.planning * 100).toInt()}%", isComplete = project.progress >= project.phases.planning)
+                                PhaseItem("Development", "${(project.phases.development * 100).toInt()}%", isComplete = project.progress >= (project.phases.planning + project.phases.development))
+                                PhaseItem("Testing", "${(project.phases.testing * 100).toInt()}%", isComplete = project.progress >= (project.phases.planning + project.phases.development + project.phases.testing))
+                                PhaseItem("Deployment", "${(project.phases.deployment * 100).toInt()}%", isComplete = project.progress >= 0.95f)
+                            }
+                        } else {
+                            Text(
+                                text = if (project.status == ProjectStatus.IMPORTED) "Imported repository — Planning not configured" else "Phase distribution not configured",
+                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                            )
                         }
                     }
                 }

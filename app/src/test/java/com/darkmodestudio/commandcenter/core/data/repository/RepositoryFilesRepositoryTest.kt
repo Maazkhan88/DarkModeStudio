@@ -62,17 +62,21 @@ class RepositoryFilesRepositoryTest {
     }
 
     @Test
-    fun loadDirectory_nonMainDefaultBranch_passesRefAndReportsBranch() = runBlocking {
-        var capturedUrl = ""
+    fun loadDirectory_mainAndDevelopBranches_cacheIndependentlyWithoutCollision() = runBlocking {
         val mockClient = OkHttpClient.Builder()
             .addInterceptor(Interceptor { chain ->
-                capturedUrl = chain.request().url.toString()
+                val url = chain.request().url.toString()
+                val bodyJson = if (url.contains("ref=develop")) {
+                    "[{\"name\": \"DevelopFeature.kt\", \"path\": \"app/DevelopFeature.kt\", \"sha\": \"sha_dev\", \"size\": 500, \"type\": \"file\"}]"
+                } else {
+                    "[{\"name\": \"MainProduction.kt\", \"path\": \"app/MainProduction.kt\", \"sha\": \"sha_main\", \"size\": 600, \"type\": \"file\"}]"
+                }
                 Response.Builder()
                     .request(chain.request())
                     .protocol(Protocol.HTTP_1_1)
                     .code(200)
                     .message("OK")
-                    .body("[{\"name\": \"feature.txt\", \"path\": \"feature.txt\", \"sha\": \"sha123\", \"size\": 100, \"type\": \"file\"}]".toResponseBody("application/json".toMediaTypeOrNull()))
+                    .body(bodyJson.toResponseBody("application/json".toMediaTypeOrNull()))
                     .build()
             })
             .build()
@@ -84,18 +88,29 @@ class RepositoryFilesRepositoryTest {
             repositoryFileDao = database.repositoryFileDao()
         )
 
-        filesRepo.loadDirectory(
-            repoFullName = "Maazkhan88/DarkModeStudio",
-            branch = "develop",
-            path = ""
-        )
+        // 1. Ingest main branch cache
+        filesRepo.loadDirectory("Maazkhan88/DarkModeStudio", "main", "app")
+        val mainState = filesRepo.filesState.first() as RepositoryFilesState.Loaded
+        assertEquals(1, mainState.entries.size)
+        assertEquals("MainProduction.kt", mainState.entries.first().name)
 
-        val state = filesRepo.filesState.first()
-        assertTrue(state is RepositoryFilesState.Loaded)
-        val loaded = state as RepositoryFilesState.Loaded
-        assertEquals("develop", loaded.branch)
-        assertEquals("Maazkhan88/DarkModeStudio", loaded.repository)
-        assertTrue(capturedUrl.contains("ref=develop"))
+        // 2. Ingest develop branch cache
+        filesRepo.loadDirectory("Maazkhan88/DarkModeStudio", "develop", "app")
+        val devState = filesRepo.filesState.first() as RepositoryFilesState.Loaded
+        assertEquals(1, devState.entries.size)
+        assertEquals("DevelopFeature.kt", devState.entries.first().name)
+
+        // 3. Direct Room DAO verification: both branch caches coexist independently
+        val cachedMain = database.repositoryFileDao().getFiles("Maazkhan88/DarkModeStudio", "main", "app")
+        val cachedDev = database.repositoryFileDao().getFiles("Maazkhan88/DarkModeStudio", "develop", "app")
+
+        assertEquals(1, cachedMain.size)
+        assertEquals("MainProduction.kt", cachedMain.first().name)
+        assertEquals("main", cachedMain.first().branch)
+
+        assertEquals(1, cachedDev.size)
+        assertEquals("DevelopFeature.kt", cachedDev.first().name)
+        assertEquals("develop", cachedDev.first().branch)
     }
 
     @Test
@@ -170,7 +185,7 @@ class RepositoryFilesRepositoryTest {
         assertEquals("README.md", loadedRoot.entries[1].name)
 
         // Verify Room SQLite persistence
-        val cachedRoot = database.repositoryFileDao().getFiles("Maazkhan88/DarkModeStudio", "")
+        val cachedRoot = database.repositoryFileDao().getFiles("Maazkhan88/DarkModeStudio", "main", "")
         assertEquals(2, cachedRoot.size)
 
         // 2. Navigate Into Subfolder "app"

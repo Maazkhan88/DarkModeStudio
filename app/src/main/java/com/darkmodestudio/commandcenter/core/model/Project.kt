@@ -4,6 +4,7 @@ import com.darkmodestudio.commandcenter.core.designsystem.component.MilestoneIte
 import com.darkmodestudio.commandcenter.core.designsystem.component.NodeStyle
 
 enum class ProjectStatus(val displayName: String, val nodeStyle: NodeStyle) {
+    IMPORTED("Imported", NodeStyle.HOLLOW),
     ON_TRACK("On Track", NodeStyle.SOLID),
     IN_PROGRESS("In Progress", NodeStyle.DOUBLE_RING),
     WAITING("Waiting", NodeStyle.HOLLOW),
@@ -13,11 +14,14 @@ enum class ProjectStatus(val displayName: String, val nodeStyle: NodeStyle) {
 }
 
 data class PhaseDistribution(
-    val planning: Float = 0.15f,
-    val development: Float = 0.45f,
-    val testing: Float = 0.20f,
-    val deployment: Float = 0.20f
-)
+    val planning: Float = 0f,
+    val development: Float = 0f,
+    val testing: Float = 0f,
+    val deployment: Float = 0f
+) {
+    val isConfigured: Boolean
+        get() = (planning + development + testing + deployment) > 0f
+}
 
 data class ProjectActivity(
     val id: String,

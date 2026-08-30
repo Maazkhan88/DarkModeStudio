@@ -36,7 +36,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
 import java.io.File
 
 /**
- * Migration 1 -> 2: Adds agent_activities table
+ * Historical Migration 1 -> 2: Adds agent_activities table
  */
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -59,22 +59,21 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 
 /**
- * Migration 2 -> 3: Adds performance indexes on tasks table (composite projectId + status, and status)
+ * Historical Migration 2 -> 3: Adds individual status & projectId indexes on tasks table
  */
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_projectId_status` ON `tasks` (`projectId`, `status`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_status` ON `tasks` (`status`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_projectId` ON `tasks` (`projectId`)")
     }
 }
 
 /**
- * Migration 3 -> 4: Adds repositoryFullName, repositoryDefaultBranch to projects table & creates repository_file_entries table
+ * Historical Migration 3 -> 4: Adds repositoryFullName to projects table & creates repository_file_entries table
  */
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `projects` ADD COLUMN `repositoryFullName` TEXT DEFAULT NULL")
-        db.execSQL("ALTER TABLE `projects` ADD COLUMN `repositoryDefaultBranch` TEXT DEFAULT NULL")
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS `repository_file_entries` (
@@ -93,6 +92,66 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_repository_file_entries_repositoryFullName_path` ON `repository_file_entries` (`repositoryFullName`, `path`)")
+    }
+}
+
+/**
+ * Canonical Migration 4 -> 5:
+ * 1. Adds repositoryDefaultBranch to projects table
+ * 2. Corrects tasks index: creates composite (projectId, status), drops redundant projectId-only index
+ * 3. Migrates repository_file_entries to branch-scoped schema
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Add repositoryDefaultBranch
+        db.execSQL("ALTER TABLE `projects` ADD COLUMN `repositoryDefaultBranch` TEXT DEFAULT NULL")
+
+        // 2. Correct tasks index structure
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_projectId_status` ON `tasks` (`projectId`, `status`)")
+        db.execSQL("DROP INDEX IF EXISTS `index_tasks_projectId`")
+
+        // 3. Migrate repository_file_entries to branch-scoped schema
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `repository_file_entries_new` (
+                `id` TEXT NOT NULL,
+                `repositoryFullName` TEXT NOT NULL,
+                `branch` TEXT NOT NULL DEFAULT 'main',
+                `path` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `fullPath` TEXT NOT NULL,
+                `type` TEXT NOT NULL,
+                `size` INTEGER NOT NULL,
+                `sha` TEXT NOT NULL,
+                `downloadUrl` TEXT,
+                `lastCached` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            INSERT INTO `repository_file_entries_new` (
+                `id`, `repositoryFullName`, `branch`, `path`, `name`, `fullPath`, `type`, `size`, `sha`, `downloadUrl`, `lastCached`
+            )
+            SELECT 
+                `repositoryFullName` || ':main:' || `path` || ':' || `name`,
+                `repositoryFullName`,
+                'main',
+                `path`,
+                `name`,
+                `fullPath`,
+                `type`,
+                `size`,
+                `sha`,
+                `downloadUrl`,
+                `lastCached`
+            FROM `repository_file_entries`
+            """.trimIndent()
+        )
+        db.execSQL("DROP TABLE IF EXISTS `repository_file_entries`")
+        db.execSQL("ALTER TABLE `repository_file_entries_new` RENAME TO `repository_file_entries`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_repository_file_entries_repositoryFullName_branch_path` ON `repository_file_entries` (`repositoryFullName`, `branch`, `path`)")
     }
 }
 
@@ -116,7 +175,7 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         AppSettingsEntity::class,
         RepositoryFileEntryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -148,7 +207,7 @@ abstract class DmsDatabase : RoomDatabase() {
                     DmsDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
 
                 INSTANCE = instance
@@ -156,35 +215,76 @@ abstract class DmsDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Failure-Safe All-or-Nothing Database Fileset Migration
+         * Treats primary DB, WAL journal, and SHM shared memory as a single atomic unit.
+         * Uses copy-and-verify semantics before deleting source legacy files.
+         */
         fun migrateLegacyDatabaseFileIfPresent(context: Context): Boolean {
             val legacyDb = context.getDatabasePath(LEGACY_DATABASE_NAME)
             val currentDb = context.getDatabasePath(DATABASE_NAME)
 
-            if (!legacyDb.exists() || currentDb.exists()) {
+            // If destination already exists or source does not exist, abort safely
+            if (currentDb.exists() || !legacyDb.exists()) {
                 return false
             }
 
+            val parentDir = legacyDb.parentFile ?: return false
+            val legacyWal = File(parentDir, "$LEGACY_DATABASE_NAME-wal")
+            val legacyShm = File(parentDir, "$LEGACY_DATABASE_NAME-shm")
+
+            val currentWal = File(parentDir, "$DATABASE_NAME-wal")
+            val currentShm = File(parentDir, "$DATABASE_NAME-shm")
+
+            val hasWal = legacyWal.exists()
+            val hasShm = legacyShm.exists()
+
+            parentDir.mkdirs()
+
             return try {
-                legacyDb.parentFile?.mkdirs()
-                val mainMoved = legacyDb.renameTo(currentDb)
-                if (!mainMoved || !currentDb.exists()) {
+                // Stage 1: Safe copy primary database
+                legacyDb.copyTo(currentDb, overwrite = true)
+                if (!currentDb.exists() || (legacyDb.length() > 0L && currentDb.length() != legacyDb.length())) {
+                    currentDb.delete()
                     return false
                 }
 
-                val legacyWal = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-wal")
-                val currentWal = File(currentDb.parentFile, "$DATABASE_NAME-wal")
-                if (legacyWal.exists()) {
-                    legacyWal.renameTo(currentWal)
+                // Stage 2: Safe copy WAL if present
+                if (hasWal) {
+                    legacyWal.copyTo(currentWal, overwrite = true)
+                    if (!currentWal.exists() || (legacyWal.length() > 0L && currentWal.length() != legacyWal.length())) {
+                        currentDb.delete()
+                        currentWal.delete()
+                        return false
+                    }
                 }
 
-                val legacyShm = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-shm")
-                val currentShm = File(currentDb.parentFile, "$DATABASE_NAME-shm")
-                if (legacyShm.exists()) {
-                    legacyShm.renameTo(currentShm)
+                // Stage 3: Safe copy SHM if present
+                if (hasShm) {
+                    legacyShm.copyTo(currentShm, overwrite = true)
+                    if (!currentShm.exists() || (legacyShm.length() > 0L && currentShm.length() != legacyShm.length())) {
+                        currentDb.delete()
+                        currentWal.delete()
+                        currentShm.delete()
+                        return false
+                    }
                 }
+
+                // Stage 4: Verification
+                if (!currentDb.exists()) return false
+                if (hasWal && !currentWal.exists()) return false
+                if (hasShm && !currentShm.exists()) return false
+
+                // Stage 5: Delete originals only after destination fileset is validated
+                legacyDb.delete()
+                if (hasWal) legacyWal.delete()
+                if (hasShm) legacyShm.delete()
 
                 true
             } catch (_: Exception) {
+                if (currentDb.exists()) currentDb.delete()
+                if (currentWal.exists()) currentWal.delete()
+                if (currentShm.exists()) currentShm.delete()
                 false
             }
         }

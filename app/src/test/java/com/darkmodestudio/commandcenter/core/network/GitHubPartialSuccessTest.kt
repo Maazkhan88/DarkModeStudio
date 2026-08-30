@@ -150,8 +150,12 @@ class GitHubPartialSuccessTest {
         assertEquals(IntegrationHealth.DEGRADED, integration!!.health)
         assertTrue(integration.primaryMetric.contains("Partial Sync"))
 
-        // Repository data must still be safely ingested
+        // Repository data must still be safely ingested with truthful IMPORTED status
         assertEquals(1, database.projectDao().getProjectCount())
+        val importedProj = database.projectDao().getProjectById("secondme")
+        assertNotNull(importedProj)
+        assertEquals(com.darkmodestudio.commandcenter.core.model.ProjectStatus.IMPORTED, importedProj!!.status)
+        assertEquals(0f, importedProj.planningWeight, 0.001f)
 
         // Metrics verification: Open PRs preserved as "14 open PRs" (NEVER overwritten with 0)
         val metrics = database.integrationDao().getMetricsByIntegration("github").associateBy { it.label }

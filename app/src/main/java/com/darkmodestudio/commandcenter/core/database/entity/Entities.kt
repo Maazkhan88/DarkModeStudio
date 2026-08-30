@@ -24,10 +24,10 @@ data class ProjectEntity(
     val dueDate: String,
     val nextMilestone: String,
     val manualProgressOverride: Float? = null,
-    val planningWeight: Float = 0.15f,
-    val developmentWeight: Float = 0.45f,
-    val testingWeight: Float = 0.20f,
-    val deploymentWeight: Float = 0.20f,
+    val planningWeight: Float = 0f,
+    val developmentWeight: Float = 0f,
+    val testingWeight: Float = 0f,
+    val deploymentWeight: Float = 0f,
     val lastUpdate: String = "Just now",
     val repositoryFullName: String? = null,
     val repositoryDefaultBranch: String? = null
@@ -300,16 +300,17 @@ data class AppSettingsEntity(
     val taskDeadlines: Boolean = true,
     val agentLimitWarnings: Boolean = true,
     val platformIncidents: Boolean = true,
-    val schemaSeedVersion: Int = 4
+    val schemaSeedVersion: Int = 5
 )
 
 @Entity(
     tableName = "repository_file_entries",
-    indices = [Index(value = ["repositoryFullName", "path"])]
+    indices = [Index(value = ["repositoryFullName", "branch", "path"])]
 )
 data class RepositoryFileEntryEntity(
-    @PrimaryKey val id: String, // "$repositoryFullName:$path:$name"
+    @PrimaryKey val id: String, // "$repositoryFullName:$branch:$path:$name"
     val repositoryFullName: String,
+    val branch: String = "main",
     val path: String, // parent folder path e.g. "" for root or "app/src"
     val name: String,
     val fullPath: String,

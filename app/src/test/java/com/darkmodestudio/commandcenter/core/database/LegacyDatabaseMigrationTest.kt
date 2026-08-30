@@ -1,6 +1,7 @@
 package com.darkmodestudio.commandcenter.core.database
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,44 +56,79 @@ class LegacyDatabaseMigrationTest {
     }
 
     @Test
-    fun migration_whenLegacyDbPresent_movesAllDbFilesSuccessfully() {
+    fun caseA_fullFilesetMigration_withWalAndShm_migratesSuccessfullyAndRemainsReadable() {
         legacyDbFile.parentFile?.mkdirs()
-        legacyDbFile.writeText("SQLite format 3 legacy db data")
-        legacyWalFile.writeText("legacy wal journal")
-        legacyShmFile.writeText("legacy shm shared memory")
+
+        // Create a real SQLite database
+        val sqlite = SQLiteDatabase.openOrCreateDatabase(legacyDbFile, null)
+        sqlite.execSQL("CREATE TABLE sample_data (id TEXT PRIMARY KEY, value TEXT)")
+        sqlite.execSQL("INSERT INTO sample_data VALUES ('item_1', 'Verified Persistence')")
+        sqlite.close()
+
+        // Create WAL and SHM companions
+        legacyWalFile.writeText("wal_companion_binary_stream")
+        legacyShmFile.writeText("shm_companion_binary_stream")
+
+        val result = DmsDatabase.migrateLegacyDatabaseFileIfPresent(context)
+
+        assertTrue("Migration must return true when all files migrate cleanly", result)
+        assertFalse("Legacy main DB must be removed", legacyDbFile.exists())
+        assertFalse("Legacy WAL must be removed", legacyWalFile.exists())
+        assertFalse("Legacy SHM must be removed", legacyShmFile.exists())
+
+        assertTrue("Target DB must exist", currentDbFile.exists())
+        assertTrue("Target WAL must exist", currentWalFile.exists())
+        assertTrue("Target SHM must exist", currentShmFile.exists())
+
+        // Validate readability with real SQLite engine
+        val targetSqlite = SQLiteDatabase.openDatabase(currentDbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+        val cursor = targetSqlite.rawQuery("SELECT value FROM sample_data WHERE id = 'item_1'", null)
+        assertTrue(cursor.moveToFirst())
+        assertEquals("Verified Persistence", cursor.getString(0))
+        cursor.close()
+        targetSqlite.close()
+    }
+
+    @Test
+    fun caseB_targetDbAlreadyExists_abortsMigrationAndPreservesLegacyUntouched() {
+        legacyDbFile.parentFile?.mkdirs()
+        legacyDbFile.writeText("legacy content")
+        legacyWalFile.writeText("legacy wal")
+        currentDbFile.writeText("existing current database")
+
+        val result = DmsDatabase.migrateLegacyDatabaseFileIfPresent(context)
+
+        assertFalse("Migration must return false if destination already exists", result)
+        assertTrue("Legacy DB must remain untouched", legacyDbFile.exists())
+        assertTrue("Legacy WAL must remain untouched", legacyWalFile.exists())
+        assertEquals("existing current database", currentDbFile.readText())
+    }
+
+    @Test
+    fun caseF_standaloneLegacyDb_withoutWalOrShm_migratesSuccessfully() {
+        legacyDbFile.parentFile?.mkdirs()
+
+        val sqlite = SQLiteDatabase.openOrCreateDatabase(legacyDbFile, null)
+        sqlite.execSQL("CREATE TABLE notes (text TEXT)")
+        sqlite.execSQL("INSERT INTO notes VALUES ('Standalone DB migrated')")
+        sqlite.close()
 
         val result = DmsDatabase.migrateLegacyDatabaseFileIfPresent(context)
 
         assertTrue(result)
-        assertFalse("Legacy DB should no longer exist", legacyDbFile.exists())
-        assertFalse("Legacy WAL should no longer exist", legacyWalFile.exists())
-        assertFalse("Legacy SHM should no longer exist", legacyShmFile.exists())
-
-        assertTrue("Current DB must exist", currentDbFile.exists())
-        assertTrue("Current WAL must exist", currentWalFile.exists())
-        assertTrue("Current SHM must exist", currentShmFile.exists())
-
-        assertEquals("SQLite format 3 legacy db data", currentDbFile.readText())
-        assertEquals("legacy wal journal", currentWalFile.readText())
-        assertEquals("legacy shm shared memory", currentShmFile.readText())
-    }
-
-    @Test
-    fun migration_whenCurrentDbAlreadyExists_abortsMigrationSafely() {
-        legacyDbFile.parentFile?.mkdirs()
-        legacyDbFile.writeText("old legacy")
-        currentDbFile.writeText("active current")
-
-        val result = DmsDatabase.migrateLegacyDatabaseFileIfPresent(context)
-
-        assertFalse(result)
-        assertTrue(legacyDbFile.exists())
+        assertFalse(legacyDbFile.exists())
         assertTrue(currentDbFile.exists())
-        assertEquals("active current", currentDbFile.readText())
+
+        val targetSqlite = SQLiteDatabase.openDatabase(currentDbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+        val cursor = targetSqlite.rawQuery("SELECT text FROM notes", null)
+        assertTrue(cursor.moveToFirst())
+        assertEquals("Standalone DB migrated", cursor.getString(0))
+        cursor.close()
+        targetSqlite.close()
     }
 
     @Test
-    fun migration_whenNoLegacyDbExists_returnsFalseWithoutTouchingAnything() {
+    fun caseC_whenNoLegacyDbExists_returnsFalseWithoutTouchingAnything() {
         val result = DmsDatabase.migrateLegacyDatabaseFileIfPresent(context)
 
         assertFalse(result)
