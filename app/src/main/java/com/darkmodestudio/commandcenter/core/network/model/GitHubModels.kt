@@ -90,3 +90,14 @@ data class GitHubRateLimitResourcesDto(
 data class GitHubRateLimitResponseDto(
     val resources: GitHubRateLimitResourcesDto
 )
+
+@Serializable
+data class GitHubContentDto(
+    val name: String,
+    val path: String,
+    val sha: String,
+    val size: Long = 0,
+    val type: String, // "file" or "dir"
+    @SerialName("download_url") val downloadUrl: String? = null
+)
+

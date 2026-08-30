@@ -52,7 +52,11 @@ fun PreviewHomeScreen() {
 @Composable
 fun PreviewConnectStackScreen() {
     DarkModeStudioTheme {
-        ConnectStackScreen(onContinueClick = {})
+        ConnectStackScreen(
+            healthRepository = remember { HealthRepository() },
+            notificationRepository = remember { NotificationRepository() },
+            onContinueClick = {}
+        )
     }
 }
 

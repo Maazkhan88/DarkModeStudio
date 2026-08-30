@@ -75,6 +75,7 @@ object LiveCloudHub {
         )
 
         return GitHubTelemetryResult(
+            status = GitHubSyncStatus.SUCCESS,
             isSuccess = true,
             repos = repos,
             commitsByRepo = commitsByRepo,

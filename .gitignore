@@ -10,3 +10,8 @@
 .cxx
 *.apk
 !DarkModeStudio-debug.apk
+.kotlin/
+*.log
+.dms-worktrees/
+desktop/dist/
+desktop/node_modules/

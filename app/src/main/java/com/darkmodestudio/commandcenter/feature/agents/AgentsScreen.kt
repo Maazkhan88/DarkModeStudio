@@ -3,7 +3,6 @@ package com.darkmodestudio.commandcenter.feature.agents
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +46,7 @@ import com.darkmodestudio.commandcenter.core.model.Agent
 @Composable
 fun AgentsScreen(
     agentRepository: AgentRepository,
+    onManageAgentsClick: () -> Unit = {},
     onNotificationClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
@@ -85,20 +85,20 @@ fun AgentsScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Coding agents & usage",
+                            text = "Coding agents & local session usage",
                             style = DmsTheme.typography.bodySmall.copy(color = DmsColors.White64)
                         )
                     }
 
                     DmsSecondaryOutlineButton(
                         text = "Manage Agents",
-                        onClick = { /* Manage actions */ },
+                        onClick = onManageAgentsClick,
                         height = 36.dp
                     )
                 }
             }
 
-            // USAGE SUMMARY CARD (Large card with Runs/Messages/Tasks dividers + Technical Line Graph)
+            // USAGE SUMMARY CARD (Local Session Tracking with transparent label)
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -113,11 +113,11 @@ fun AgentsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Monthly Allocation",
+                                text = "Local Session Metrics",
                                 style = DmsTheme.typography.h4.copy(fontSize = 15.sp)
                             )
                             Text(
-                                text = "Resets in 14d",
+                                text = "Quota telemetry: Local session",
                                 style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                             )
                         }
@@ -132,7 +132,7 @@ fun AgentsScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 AllocationMetricRow(
-                                    label = "Runs",
+                                    label = "DMS Runs",
                                     used = "${agentRepository.totalRunsUsed}",
                                     total = "/ 1,500"
                                 )
@@ -191,7 +191,7 @@ private fun AllocationMetricRow(
                 fontSize = 10.sp,
                 color = DmsColors.White48
             ),
-            modifier = Modifier.width(54.dp)
+            modifier = Modifier.width(58.dp)
         )
         Text(
             text = used,
@@ -265,7 +265,7 @@ private fun AgentCardItem(agent: Agent) {
                             )
                         }
                         Text(
-                            text = agent.provider.displayName,
+                            text = "${agent.provider.displayName} • Local Session",
                             style = DmsTheme.typography.caption.copy(
                                 fontSize = 10.sp,
                                 color = DmsColors.White48

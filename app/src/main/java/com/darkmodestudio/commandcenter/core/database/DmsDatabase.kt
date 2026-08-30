@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.darkmodestudio.commandcenter.core.database.dao.AgentDao
 import com.darkmodestudio.commandcenter.core.database.dao.AutomationDao
 import com.darkmodestudio.commandcenter.core.database.dao.IntegrationDao
@@ -39,6 +41,19 @@ import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN schemaSeedVersion INTEGER NOT NULL DEFAULT 1")
+    }
+}
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_status ON tasks(status)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_projectId ON tasks(projectId)")
+    }
+}
 
 @Database(
     entities = [
@@ -85,21 +100,33 @@ abstract class DmsDatabase : RoomDatabase() {
                     DmsDatabase::class.java,
                     "darkmodestudio_command_center.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
 
-                // Trigger Initial Seed in Coroutine
+                // Deterministic First-Install Seeding (guarantees no race or overwriting existing live data)
                 CoroutineScope(Dispatchers.IO).launch {
-                    seedInitialData(instance)
+                    seedInitialDataIfEmpty(instance)
                 }
 
                 instance
             }
         }
 
-        suspend fun seedInitialData(db: DmsDatabase) {
-            // Seed Real User Projects
+        suspend fun seedInitialDataIfEmpty(db: DmsDatabase) {
+            // Guard: Check if database is already initialized or has projects
+            val existingCount = try {
+                db.projectDao().getProjectCount()
+            } catch (_: Exception) {
+                0
+            }
+
+            if (existingCount > 0) {
+                // Database already populated — do NOT overwrite real user or synced telemetry
+                return
+            }
+
+            // Seed Base Projects for clean initial install
             val projects = listOf(
                 ProjectEntity(
                     id = "darkmodestudio",
@@ -111,9 +138,9 @@ abstract class DmsDatabase : RoomDatabase() {
                     owner = "Maazkhan88",
                     createdAt = "Aug 30, 2026",
                     dueDate = "Q4 2026",
-                    nextMilestone = "v1.5.0 Production Live Sync",
+                    nextMilestone = "v1.6.1 Production Release",
                     manualProgressOverride = 0.94f,
-                    lastUpdate = "Aug 30, 2026 • 05:00 PM"
+                    lastUpdate = "Aug 30, 2026 • 06:00 PM"
                 ),
                 ProjectEntity(
                     id = "secondme",
@@ -206,7 +233,7 @@ abstract class DmsDatabase : RoomDatabase() {
 
             // Seed Tasks with Exact Date & Time
             val tasks = listOf(
-                TaskEntity("t1", "darkmodestudio", "DarkModeStudio", "Deploy v1.5.0 with live GitHub API", "Verify commit streaming and OLED monochrome theme", TaskStatus.PENDING, TaskPriority.HIGH, "Antigravity", "Aug 30, 2026 • 06:00 PM"),
+                TaskEntity("t1", "darkmodestudio", "DarkModeStudio", "Deploy v1.6.1 with Keystore security", "Verify credential isolation and Room SSOT", TaskStatus.PENDING, TaskPriority.HIGH, "Antigravity", "Aug 30, 2026 • 06:00 PM"),
                 TaskEntity("t2", "secondme", "SecondMe", "Verify Google OAuth Web Client ID", "Test Android Credential Manager sign-in lifecycle", TaskStatus.PENDING, TaskPriority.HIGH, "Codex", "Aug 30, 2026 • 07:30 PM"),
                 TaskEntity("t3", "agstudio", "AGStudio", "Connect Agent Runtime to Local Bridge", "Stream CLI token meters and active task events", TaskStatus.PENDING, TaskPriority.MEDIUM, "Antigravity", "Aug 31, 2026 • 10:00 AM"),
                 TaskEntity("t4", "ghostcart", "Ghostcart", "Verify headless checkout edge response", "Ensure sub-50ms latency across Cloudflare workers", TaskStatus.DONE, TaskPriority.HIGH, "Claude", "Aug 30, 2026 • 03:15 PM", completedAt = "Aug 30, 2026 • 03:15 PM"),
@@ -226,7 +253,7 @@ abstract class DmsDatabase : RoomDatabase() {
 
             // Seed Integrations
             val integrations = listOf(
-                IntegrationEntity("github", "GitHub", "Code & CI/CD", isConnected = true, health = IntegrationHealth.OPERATIONAL, lastSync = "Aug 30, 2026 • 05:00 PM", primaryMetric = "All CI Actions Passing"),
+                IntegrationEntity("github", "GitHub", "Code & CI/CD", isConnected = false, health = IntegrationHealth.DISCONNECTED, lastSync = "Not synced", primaryMetric = "Not connected — Tap to configure"),
                 IntegrationEntity("cloudflare", "Cloudflare", "Edge & Infrastructure", isConnected = true, health = IntegrationHealth.OPERATIONAL, lastSync = "Aug 30, 2026 • 05:00 PM", primaryMetric = "1.8M req • 0.01% err"),
                 IntegrationEntity("firebase", "Firebase", "Mobile & Crashlytics", isConnected = true, health = IntegrationHealth.OPERATIONAL, lastSync = "Aug 30, 2026 • 05:00 PM", primaryMetric = "99.98% Crash-Free"),
                 IntegrationEntity("play_console", "Google Play Console", "Distribution", isConnected = true, health = IntegrationHealth.OPERATIONAL, lastSync = "Aug 30, 2026 • 05:00 PM", primaryMetric = "Internal Track Active"),
@@ -236,10 +263,8 @@ abstract class DmsDatabase : RoomDatabase() {
             db.integrationDao().insertIntegrations(integrations)
 
             val metrics = listOf(
-                IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = "Maazkhan88/DarkModeStudio"),
-                IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = "Aug 30, 2026 • 04:58 PM"),
-                IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "2 open PRs"),
-                IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "All passing"),
+                IntegrationMetricEntity(integrationId = "github", label = "Status", value = "Disconnected"),
+                IntegrationMetricEntity(integrationId = "github", label = "Authentication", value = "Requires PAT with repo & workflow scope"),
                 IntegrationMetricEntity(integrationId = "cloudflare", label = "Daily Requests", value = "1,842,910"),
                 IntegrationMetricEntity(integrationId = "cloudflare", label = "Error Rate", value = "0.01% (nominal)"),
                 IntegrationMetricEntity(integrationId = "cloudflare", label = "Cache Hit Ratio", value = "96.4%"),
@@ -258,7 +283,7 @@ abstract class DmsDatabase : RoomDatabase() {
             // Seed Notifications with Exact Date & Time
             val notifications = listOf(
                 NotificationEntity("n1", "Standup Reminder", "Daily engineering standup with team", "Aug 30, 2026 • 05:00 PM", NotificationType.REMINDER, NotificationState.UNREAD),
-                NotificationEntity("n2", "DarkModeStudio Release v1.5.0", "Live GitHub account sync successfully deployed", "Aug 30, 2026 • 04:58 PM", NotificationType.BUILD_ALERT, NotificationState.UNREAD),
+                NotificationEntity("n2", "DarkModeStudio Release v1.6.0", "Release candidate packaged", "Aug 30, 2026 • 04:58 PM", NotificationType.BUILD_ALERT, NotificationState.UNREAD),
                 NotificationEntity("n3", "Task deadline approaching", "“Verify Google OAuth” due at 07:30 PM", "Aug 30, 2026 • 04:30 PM", NotificationType.TASK_DEADLINE, NotificationState.READ),
                 NotificationEntity("n4", "Claude 3.5 Sonnet quota alert", "Monthly token consumption reached 82%", "Aug 30, 2026 • 02:15 PM", NotificationType.AGENT_LIMIT, NotificationState.READ),
                 NotificationEntity("n5", "Cloudflare edge health verified", "1.8M daily requests nominal across all zones", "Aug 30, 2026 • 12:00 PM", NotificationType.INCIDENT, NotificationState.READ)

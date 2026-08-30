@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import com.darkmodestudio.commandcenter.feature.sheets.CreateProjectSheet
 import com.darkmodestudio.commandcenter.feature.sheets.CreateReminderSheet
 import com.darkmodestudio.commandcenter.feature.sheets.CreateTaskSheet
 import com.darkmodestudio.commandcenter.feature.sheets.GlobalActionSheet
+import com.darkmodestudio.commandcenter.feature.sheets.ManageAgentsSheet
 import com.darkmodestudio.commandcenter.feature.updates.UpdatesScreen
 import kotlinx.coroutines.launch
 
@@ -75,6 +77,9 @@ fun DmsNavHost(
     var showCreateReminderSheet by remember { mutableStateOf(false) }
     var showConnectServiceSheet by remember { mutableStateOf(false) }
     var showCreateAutomationSheet by remember { mutableStateOf(false) }
+    var showManageAgentsSheet by remember { mutableStateOf(false) }
+
+    val agentsList by agentRepository.agents.collectAsState(initial = emptyList())
 
     val showBottomBar = currentRoute in listOf(
         Screen.Home.route,
@@ -139,6 +144,8 @@ fun DmsNavHost(
             // Screen 02: Connect Your Stack
             composable(Screen.ConnectStack.route) {
                 ConnectStackScreen(
+                    healthRepository = healthRepository,
+                    notificationRepository = notificationRepository,
                     onContinueClick = {
                         navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
@@ -169,6 +176,8 @@ fun DmsNavHost(
                 ProjectDetailScreen(
                     projectId = projectId,
                     projectRepository = projectRepository,
+                    taskRepository = taskRepository,
+                    onConnectGitHubClick = { showConnectServiceSheet = true },
                     onBackClick = { navController.popBackStack() },
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
                     onAvatarClick = { navController.navigate(Screen.Settings.route) }
@@ -179,6 +188,7 @@ fun DmsNavHost(
             composable(Screen.Agents.route) {
                 AgentsScreen(
                     agentRepository = agentRepository,
+                    onManageAgentsClick = { showManageAgentsSheet = true },
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
                     onAvatarClick = { navController.navigate(Screen.Settings.route) }
                 )
@@ -259,6 +269,19 @@ fun DmsNavHost(
                         ActionType.NEW_REMINDER -> showCreateReminderSheet = true
                         ActionType.CONNECT_SERVICE -> showConnectServiceSheet = true
                         ActionType.NEW_AUTOMATION -> showCreateAutomationSheet = true
+                    }
+                }
+            )
+        }
+
+        // Manage Agents Modal Sheet
+        if (showManageAgentsSheet) {
+            ManageAgentsSheet(
+                agents = agentsList,
+                onDismiss = { showManageAgentsSheet = false },
+                onRefreshQuotas = {
+                    coroutineScope.launch {
+                        syncCoordinator.syncAll(SyncMode.MANUAL)
                     }
                 }
             )

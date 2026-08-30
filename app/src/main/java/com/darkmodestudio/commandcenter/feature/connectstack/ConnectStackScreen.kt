@@ -26,18 +26,17 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.darkmodestudio.commandcenter.core.data.repository.HealthRepository
+import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsPrimaryButton
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsStatusCapsule
@@ -47,37 +46,34 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
+import com.darkmodestudio.commandcenter.core.model.NotificationToggleState
+import kotlinx.coroutines.launch
 
-data class ConnectableService(
+data class ConnectableServiceItem(
     val id: String,
     val name: String,
-    val description: String,
-    val initialConnected: Boolean
+    val description: String
 )
 
 @Composable
 fun ConnectStackScreen(
+    healthRepository: HealthRepository,
+    notificationRepository: NotificationRepository,
     onContinueClick: () -> Unit,
     onConnectServiceClick: ((String) -> Unit)? = null
 ) {
-    val services = remember {
-        listOf(
-            ConnectableService("github", "GitHub", "Repos, PRs, and Actions CI workflows", true),
-            ConnectableService("cloudflare", "Cloudflare", "Workers, DNS, and edge deployments", true),
-            ConnectableService("firebase", "Firebase", "Crashlytics, release tracks, and FCM", true),
-            ConnectableService("play_console", "Google Play Console", "Production & internal test tracks", true),
-            ConnectableService("vercel", "Vercel", "Frontend preview and deployment status", true),
-            ConnectableService("supabase", "Supabase", "Postgres database health & storage telemetry", false)
-        )
-    }
+    val coroutineScope = rememberCoroutineScope()
+    val integrations by healthRepository.integrations.collectAsState(initial = emptyList())
+    val toggleStates by notificationRepository.toggleStates.collectAsState(initial = NotificationToggleState())
 
-    val connectedState = remember {
-        mutableStateMapOf<String, Boolean>().apply {
-            services.forEach { this[it.id] = it.initialConnected }
-        }
-    }
-
-    var enableNotifications by remember { mutableStateOf(true) }
+    val availableServices = listOf(
+        ConnectableServiceItem("github", "GitHub", "Repos, PRs, and Actions CI workflows"),
+        ConnectableServiceItem("cloudflare", "Cloudflare", "Workers, DNS, and edge deployments"),
+        ConnectableServiceItem("firebase", "Firebase", "Crashlytics, release tracks, and FCM"),
+        ConnectableServiceItem("play_console", "Google Play Console", "Production & internal test tracks"),
+        ConnectableServiceItem("vercel", "Vercel", "Frontend preview and deployment status"),
+        ConnectableServiceItem("supabase", "Supabase", "Postgres database health & storage telemetry")
+    )
 
     Column(
         modifier = Modifier
@@ -130,9 +126,11 @@ fun ConnectStackScreen(
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // Connection Cards (Height 62dp, Radius 16dp)
-            items(services) { service ->
-                val isConnected = connectedState[service.id] == true
+            // Connection Cards (Height 62dp, Radius 16dp) backed strictly by Room SSOT
+            items(availableServices) { service ->
+                val integration = integrations.find { it.id == service.id }
+                val isConnected = integration?.isConnected == true
+
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = DmsRadii.ShapeR16,
@@ -173,7 +171,7 @@ fun ConnectStackScreen(
                                 nodeStyle = NodeStyle.SOLID,
                                 height = 28.dp,
                                 modifier = Modifier.clickable {
-                                    connectedState[service.id] = false
+                                    onConnectServiceClick?.invoke(service.id)
                                 }
                             )
                         } else {
@@ -183,7 +181,6 @@ fun ConnectStackScreen(
                                     .clip(DmsRadii.ShapeR8)
                                     .background(DmsColors.White)
                                     .clickable {
-                                        connectedState[service.id] = true
                                         onConnectServiceClick?.invoke(service.id)
                                     }
                                     .padding(horizontal = 12.dp),
@@ -203,7 +200,7 @@ fun ConnectStackScreen(
                 }
             }
 
-            // Privacy Card
+            // Keystore Encryption Notice
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -230,7 +227,7 @@ fun ConnectStackScreen(
                                 )
                             )
                             Text(
-                                text = "API tokens are isolated inside Android Keystore hardware enclave.",
+                                text = "Credentials are encrypted using device-protected Android Keystore keys.",
                                 style = DmsTheme.typography.caption.copy(
                                     fontSize = 10.sp,
                                     color = DmsColors.White48
@@ -241,7 +238,7 @@ fun ConnectStackScreen(
                 }
             }
 
-            // Notification Toggle
+            // Notification Toggle persisted to Room
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -283,8 +280,12 @@ fun ConnectStackScreen(
                         }
 
                         DmsToggle(
-                            checked = enableNotifications,
-                            onCheckedChange = { enableNotifications = it }
+                            checked = toggleStates.buildAlerts,
+                            onCheckedChange = { isChecked ->
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(buildAlerts = isChecked) }
+                                }
+                            }
                         )
                     }
                 }

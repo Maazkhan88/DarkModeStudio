@@ -152,7 +152,7 @@ fun HomeScreen(
                 }
             }
 
-            // HERO METRICS (4 equal interactive metrics)
+            // HERO METRICS (4 equal interactive metrics backed 100% by Room SQLite)
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -166,35 +166,35 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         HeroMetricItem(
-                            title = "Focus Score",
-                            value = "94",
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable(onClick = onNavigateToUpdates)
-                        )
-                        MetricDivider()
-                        HeroMetricItem(
-                            title = "Deep Work",
-                            value = "4.2h",
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable(onClick = onNavigateToExecution)
-                        )
-                        MetricDivider()
-                        HeroMetricItem(
                             title = "Tasks Done",
-                            value = "$doneTasksCount/$totalTasksCount",
+                            value = "$doneTasksCount",
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable(onClick = onNavigateToExecution)
                         )
                         MetricDivider()
                         HeroMetricItem(
-                            title = "Projects Active",
+                            title = "Pending",
+                            value = "$pendingTasksCount",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToExecution)
+                        )
+                        MetricDivider()
+                        HeroMetricItem(
+                            title = "Active Projects",
                             value = "$activeProjectsCount",
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable(onClick = onNavigateToProjects)
+                        )
+                        MetricDivider()
+                        HeroMetricItem(
+                            title = "Blocked",
+                            value = "$blockedTasksCount",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToExecution)
                         )
                     }
                 }
