@@ -1,0 +1,6 @@
+node_modules
+dist
+data/*.sqlite
+.dms-worktrees
+*.log
+.DS_Store
