@@ -29,6 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
+import com.darkmodestudio.commandcenter.core.designsystem.component.DmsFilterCapsule
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsNode
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsSecondaryOutlineButton
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsToggle
@@ -50,8 +55,6 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 import com.darkmodestudio.commandcenter.core.model.NotificationType
 import com.darkmodestudio.commandcenter.core.model.ReminderItem
 import com.darkmodestudio.commandcenter.core.model.UpdateNotification
-
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
@@ -63,6 +66,19 @@ fun UpdatesScreen(
     val notifications by notificationRepository.notifications.collectAsState(initial = emptyList())
     val reminders by notificationRepository.reminders.collectAsState(initial = emptyList())
     val toggleStates by notificationRepository.toggleStates.collectAsState(initial = com.darkmodestudio.commandcenter.core.model.NotificationToggleState())
+
+    var selectedFilter by remember { mutableStateOf("All") }
+
+    val filteredNotifications = remember(notifications, selectedFilter) {
+        when (selectedFilter) {
+            "Reminders" -> notifications.filter { it.type == NotificationType.REMINDER }
+            "Build Alerts" -> notifications.filter { it.type == NotificationType.BUILD_ALERT }
+            "Task Deadlines" -> notifications.filter { it.type == NotificationType.TASK_DEADLINE }
+            "Agent Limits" -> notifications.filter { it.type == NotificationType.AGENT_LIMIT }
+            "Incidents" -> notifications.filter { it.type == NotificationType.INCIDENT }
+            else -> notifications
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -102,44 +118,72 @@ fun UpdatesScreen(
                     }
 
                     DmsSecondaryOutlineButton(
-                        text = "Settings",
-                        onClick = { /* Open preferences */ },
+                        text = "Preferences",
+                        onClick = onAvatarClick,
                         height = 36.dp
                     )
                 }
             }
 
-            // NOTIFICATION OVERVIEW (5 compact cards)
+            // NOTIFICATION OVERVIEW (Interactive filter cards)
             item {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     val summaryCards = listOf(
-                        Triple("Reminders", "3", Icons.Outlined.Schedule),
-                        Triple("Build Alerts", "4", Icons.Outlined.Build),
-                        Triple("Task Deadlines", "2", Icons.Outlined.TaskAlt),
-                        Triple("Agent Limits", "1", Icons.Outlined.Memory),
-                        Triple("Incidents", "0", Icons.Outlined.WarningAmber)
+                        Triple("Reminders", "${reminders.size}", Icons.Outlined.Schedule),
+                        Triple("Build Alerts", "${notifications.count { it.type == NotificationType.BUILD_ALERT }}", Icons.Outlined.Build),
+                        Triple("Task Deadlines", "${notifications.count { it.type == NotificationType.TASK_DEADLINE }}", Icons.Outlined.TaskAlt),
+                        Triple("Agent Limits", "${notifications.count { it.type == NotificationType.AGENT_LIMIT }}", Icons.Outlined.Memory),
+                        Triple("Incidents", "${notifications.count { it.type == NotificationType.INCIDENT }}", Icons.Outlined.WarningAmber)
                     )
 
                     items(summaryCards) { (label, count, icon) ->
-                        CompactOverviewCard(label = label, count = count, icon = icon)
+                        CompactOverviewCard(
+                            label = label,
+                            count = count,
+                            icon = icon,
+                            isSelected = selectedFilter == label,
+                            onClick = {
+                                selectedFilter = if (selectedFilter == label) "All" else label
+                            }
+                        )
                     }
                 }
             }
 
             // RECENT UPDATES FEED
             item {
-                Text(
-                    text = "Recent Updates",
-                    style = DmsTheme.typography.h3.copy(fontSize = 16.sp),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (selectedFilter == "All") "Recent Updates" else "$selectedFilter Updates",
+                        style = DmsTheme.typography.h3.copy(fontSize = 16.sp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    if (selectedFilter != "All") {
+                        Text(
+                            text = "Show All",
+                            style = DmsTheme.typography.caption.copy(color = DmsColors.White64),
+                            modifier = Modifier.clickable { selectedFilter = "All" }
+                        )
+                    }
+                }
             }
 
-            items(notifications) { item ->
-                RecentUpdateCard(item = item)
+            items(filteredNotifications) { item ->
+                RecentUpdateCard(
+                    item = item,
+                    onClick = {
+                        coroutineScope.launch {
+                            notificationRepository.markAsRead(item.id)
+                        }
+                    }
+                )
             }
 
             // SCHEDULED REMINDERS
@@ -248,13 +292,17 @@ fun UpdatesScreen(
 private fun CompactOverviewCard(
     label: String,
     count: String,
-    icon: ImageVector
+    icon: ImageVector,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
 ) {
     DmsCard(
         modifier = Modifier
-            .size(width = 96.dp, height = 76.dp),
+            .size(width = 96.dp, height = 76.dp)
+            .clickable(onClick = onClick),
         shape = DmsRadii.ShapeR14,
-        backgroundColor = DmsColors.Surface01,
+        backgroundColor = if (isSelected) DmsColors.SurfaceSelected else DmsColors.Surface01,
+        borderColor = if (isSelected) DmsColors.White else DmsColors.CardBorder,
         padding = 8.dp
     ) {
         Column(
@@ -269,10 +317,14 @@ private fun CompactOverviewCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = DmsColors.White80,
+                    tint = if (isSelected) DmsColors.White else DmsColors.White80,
                     modifier = Modifier.size(16.dp)
                 )
-                DmsNode(style = NodeStyle.SOLID, size = 4.dp, color = DmsColors.White)
+                DmsNode(
+                    style = if (isSelected) NodeStyle.SOLID else NodeStyle.HOLLOW,
+                    size = 4.dp,
+                    color = DmsColors.White
+                )
             }
 
             Column {
@@ -288,7 +340,7 @@ private fun CompactOverviewCard(
                     text = label,
                     style = DmsTheme.typography.caption.copy(
                         fontSize = 9.sp,
-                        color = DmsColors.White48
+                        color = if (isSelected) DmsColors.White80 else DmsColors.White48
                     ),
                     maxLines = 1
                 )
@@ -298,9 +350,14 @@ private fun CompactOverviewCard(
 }
 
 @Composable
-private fun RecentUpdateCard(item: UpdateNotification) {
+private fun RecentUpdateCard(
+    item: UpdateNotification,
+    onClick: () -> Unit
+) {
     DmsCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = DmsRadii.ShapeR14,
         backgroundColor = DmsColors.Surface01,
         padding = 12.dp
@@ -318,12 +375,12 @@ private fun RecentUpdateCard(item: UpdateNotification) {
                 if (!item.isRead) {
                     Box(
                         modifier = Modifier
-                            .size(5.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(DmsColors.White)
                     )
                 } else {
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                 }
 
                 Column {
@@ -349,8 +406,8 @@ private fun RecentUpdateCard(item: UpdateNotification) {
             Text(
                 text = item.timeAgo,
                 style = DmsTheme.typography.caption.copy(
-                    fontSize = 10.sp,
-                    color = DmsColors.White32
+                    fontSize = 9.5.sp,
+                    color = DmsColors.White48
                 ),
                 modifier = Modifier.padding(start = 8.dp)
             )
@@ -364,7 +421,9 @@ private fun ReminderRowCard(
     onToggle: () -> Unit
 ) {
     DmsCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
         shape = DmsRadii.ShapeR14,
         backgroundColor = DmsColors.Surface01,
         padding = 12.dp

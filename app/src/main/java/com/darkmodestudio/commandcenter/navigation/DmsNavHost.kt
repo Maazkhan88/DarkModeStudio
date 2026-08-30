@@ -127,7 +127,12 @@ fun DmsNavHost(
                     onNavigateToHealth = { navController.navigate(Screen.PlatformHealth.route) },
                     onNavigateToExecution = { navController.navigate(Screen.Execution.route) },
                     onNavigateToUpdates = { navController.navigate(Screen.Updates.route) },
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onManualSync = {
+                        coroutineScope.launch {
+                            syncCoordinator.syncAll(SyncMode.MANUAL)
+                        }
+                    }
                 )
             }
 
@@ -199,7 +204,8 @@ fun DmsNavHost(
                 ExecutionScreen(
                     taskRepository = taskRepository,
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
-                    onAvatarClick = { navController.navigate(Screen.Settings.route) }
+                    onAvatarClick = { navController.navigate(Screen.Settings.route) },
+                    onAddTaskClick = { showCreateTaskSheet = true }
                 )
             }
 
@@ -215,7 +221,9 @@ fun DmsNavHost(
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     settingsRepository = settingsRepository,
-                    onBackClick = { navController.popBackStack() }
+                    onBackClick = { navController.popBackStack() },
+                    onManageAutomationsClick = { showCreateAutomationSheet = true },
+                    onConnectServiceClick = { showConnectServiceSheet = true }
                 )
             }
         }

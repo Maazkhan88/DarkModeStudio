@@ -13,6 +13,9 @@ import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class GitHubSyncer(
     private val database: DmsDatabase,
@@ -21,6 +24,19 @@ class GitHubSyncer(
 ) : ProviderSyncer {
 
     override val provider: SecureProvider = SecureProvider.GITHUB
+
+    private val displayDateFormat = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.US)
+    private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+
+    private fun formatTimestamp(isoString: String?): String {
+        if (isoString.isNullOrBlank()) return displayDateFormat.format(Date())
+        return try {
+            val parsed = isoDateFormat.parse(isoString)
+            if (parsed != null) displayDateFormat.format(parsed) else displayDateFormat.format(Date())
+        } catch (_: Exception) {
+            displayDateFormat.format(Date())
+        }
+    }
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
         val storedToken = keystoreCredentialManager.getSecret("token_github") ?: ""
@@ -34,7 +50,7 @@ class GitHubSyncer(
             )
         }
 
-        val nowFormatted = "Just now"
+        val nowFormatted = displayDateFormat.format(Date())
 
         // 1. Ingest Real Repositories as Real Projects in Room SQLite
         if (result.repos.isNotEmpty()) {
@@ -56,13 +72,13 @@ class GitHubSyncer(
                     dueDate = "Q4 2026",
                     nextMilestone = latestMessage,
                     manualProgressOverride = 0.65f,
-                    lastUpdate = "Live"
+                    lastUpdate = formatTimestamp(repo.pushedAt ?: repo.updatedAt)
                 )
             }
             database.projectDao().insertProjects(liveProjects)
         }
 
-        // 2. Ingest Real Commits into Project Activities
+        // 2. Ingest Real Commits into Project Activities with Exact Date & Time
         val newActivities = mutableListOf<ProjectActivityEntity>()
         result.commitsByRepo.forEach { (repoKey, commits) ->
             val repoName = repoKey.substringAfter("/").lowercase()
@@ -74,7 +90,7 @@ class GitHubSyncer(
                         title = commitDto.commit.message.lines().firstOrNull()?.take(60) ?: "Commit",
                         author = commitDto.commit.author?.name ?: "Maazkhan88",
                         hash = commitDto.sha.take(7),
-                        timestamp = "Live"
+                        timestamp = formatTimestamp(commitDto.commit.author?.date)
                     )
                 )
             }
@@ -113,7 +129,7 @@ class GitHubSyncer(
         // 5. Update Metrics
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = primaryRepoName),
-            IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = "Live (main)"),
+            IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = nowFormatted),
             IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${result.pullsByRepo.values.flatten().size} open PRs"),
             IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "$totalPassing passing / $totalFailing failing")
         )
@@ -128,7 +144,7 @@ class GitHubSyncer(
                         integrationId = "github",
                         title = "GitHub Actions workflow run failed on main",
                         description = "CI build pipeline failure detected",
-                        timestamp = "Just now",
+                        timestamp = nowFormatted,
                         isResolved = false
                     )
                 )

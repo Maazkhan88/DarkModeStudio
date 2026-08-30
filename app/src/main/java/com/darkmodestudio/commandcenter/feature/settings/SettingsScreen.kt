@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,15 +48,14 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
-
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
     settingsRepository: SettingsRepository,
     onBackClick: () -> Unit,
-    onManageAutomationsClick: (() -> Unit)? = null
+    onManageAutomationsClick: (() -> Unit)? = null,
+    onConnectServiceClick: ((String) -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val userProfile by settingsRepository.userProfile.collectAsState(initial = com.darkmodestudio.commandcenter.core.model.UserProfile())
@@ -63,6 +63,8 @@ fun SettingsScreen(
     val biometricLock by settingsRepository.biometricLock.collectAsState(initial = true)
     val dailyBriefing by settingsRepository.dailyBriefing.collectAsState(initial = true)
     val syncFrequency by settingsRepository.syncFrequency.collectAsState(initial = "15 minutes")
+
+    val syncOptions = listOf("5 minutes", "15 minutes", "30 minutes", "1 hour")
 
     Column(
         modifier = Modifier
@@ -164,7 +166,7 @@ fun SettingsScreen(
                 }
             }
 
-            // CONNECTED ACCOUNTS
+            // CONNECTED ACCOUNTS (Interactive Rows)
             item {
                 SectionHeader(title = "Connected Accounts")
             }
@@ -177,18 +179,34 @@ fun SettingsScreen(
                     padding = 14.dp
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AccountRow(name = "GitHub", account = "darkmodestudio")
+                        AccountRow(
+                            name = "GitHub",
+                            account = "Maazkhan88 (6 Repos synced)",
+                            onClick = { onConnectServiceClick?.invoke("github") }
+                        )
                         Divider()
-                        AccountRow(name = "Google Drive", account = "founder@dms.dev")
+                        AccountRow(
+                            name = "Google Drive",
+                            account = "founder@darkmodestudio.com",
+                            onClick = { onConnectServiceClick?.invoke("google_drive") }
+                        )
                         Divider()
-                        AccountRow(name = "Slack", account = "#command-center")
+                        AccountRow(
+                            name = "Slack",
+                            account = "#command-center",
+                            onClick = { onConnectServiceClick?.invoke("slack") }
+                        )
                         Divider()
-                        AccountRow(name = "Notion", account = "DMS Workspace")
+                        AccountRow(
+                            name = "Notion",
+                            account = "DMS Master Workspace",
+                            onClick = { onConnectServiceClick?.invoke("notion") }
+                        )
                     }
                 }
             }
 
-            // GENERAL SETTINGS
+            // GENERAL SETTINGS (Biometric, Sync frequency, Daily Briefing)
             item {
                 SectionHeader(title = "Security & Sync")
             }
@@ -208,7 +226,8 @@ fun SettingsScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Fingerprint,
@@ -244,7 +263,15 @@ fun SettingsScreen(
                         Divider()
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch {
+                                        val currentIndex = syncOptions.indexOf(syncFrequency).takeIf { it >= 0 } ?: 0
+                                        val next = syncOptions[(currentIndex + 1) % syncOptions.size]
+                                        settingsRepository.setSyncFrequency(next)
+                                    }
+                                },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -267,13 +294,17 @@ fun SettingsScreen(
                                         )
                                     )
                                     Text(
-                                        text = "Refresh rate: $syncFrequency",
+                                        text = "Tap to cycle refresh rate: $syncFrequency",
                                         style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                                     )
                                 }
                             }
 
-                            DmsStatusCapsule(text = "15m", height = 24.dp)
+                            DmsStatusCapsule(
+                                text = syncFrequency.take(3),
+                                height = 24.dp,
+                                borderColor = DmsColors.White48
+                            )
                         }
 
                         Divider()
@@ -285,7 +316,8 @@ fun SettingsScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Notifications,
@@ -425,9 +457,15 @@ private fun PreferenceRow(icon: ImageVector, title: String, value: String) {
 }
 
 @Composable
-private fun AccountRow(name: String, account: String) {
+private fun AccountRow(
+    name: String,
+    account: String,
+    onClick: (() -> Unit)? = null
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = onClick != null) { onClick?.invoke() },
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +41,6 @@ import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsFilterCapsule
-import com.darkmodestudio.commandcenter.core.designsystem.component.DmsProgressRing
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsStatusCapsule
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsTopBar
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsVerticalTimeRail
@@ -51,8 +51,6 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 import com.darkmodestudio.commandcenter.core.model.Task
 import com.darkmodestudio.commandcenter.core.model.TaskStatus
-
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
@@ -66,10 +64,16 @@ fun ExecutionScreen(
     val tasks by taskRepository.tasks.collectAsState(initial = emptyList())
     var selectedFilter by remember { mutableStateOf("All Tasks") }
 
+    val doneCount = tasks.count { it.status == TaskStatus.DONE }
+    val pendingCount = tasks.count { it.status == TaskStatus.PENDING }
+    val blockedCount = tasks.count { it.status == TaskStatus.BLOCKED }
+    val overdueCount = tasks.count { it.status == TaskStatus.OVERDUE }
+
     val filteredTasks = remember(tasks, selectedFilter) {
         when (selectedFilter) {
             "My Tasks" -> tasks.filter { it.assignedAgent == "Codex" || it.assignedAgent == "Antigravity" }
             "Watchlist" -> tasks.filter { it.status == TaskStatus.BLOCKED || it.status == TaskStatus.OVERDUE }
+            "Done" -> tasks.filter { it.status == TaskStatus.DONE }
             else -> tasks
         }
     }
@@ -109,7 +113,7 @@ fun ExecutionScreen(
                     }
                 }
 
-                // Summary Metrics (12 Done, 8 Pending, 2 Blocked, 3 Overdue)
+                // Summary Metrics (Dynamic counts from Room SQLite)
                 item {
                     DmsCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -122,18 +126,18 @@ fun ExecutionScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            MetricCol("12", "Done", modifier = Modifier.weight(1f))
+                            MetricCol("$doneCount", "Done", modifier = Modifier.weight(1f))
                             Divider()
-                            MetricCol("8", "Pending", modifier = Modifier.weight(1f))
+                            MetricCol("$pendingCount", "Pending", modifier = Modifier.weight(1f))
                             Divider()
-                            MetricCol("2", "Blocked", modifier = Modifier.weight(1f))
+                            MetricCol("$blockedCount", "Blocked", modifier = Modifier.weight(1f))
                             Divider()
-                            MetricCol("3", "Overdue", modifier = Modifier.weight(1f))
+                            MetricCol("$overdueCount", "Overdue", modifier = Modifier.weight(1f))
                         }
                     }
                 }
 
-                // TODAY'S FOCUS (Vertical Time Rail)
+                // TODAY'S FOCUS (Vertical Time Rail with Exact Timestamps)
                 item {
                     DmsCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -152,32 +156,32 @@ fun ExecutionScreen(
                                     style = DmsTheme.typography.h3.copy(fontSize = 16.sp)
                                 )
                                 Text(
-                                    text = "3 actions scheduled",
+                                    text = "Aug 30, 2026",
                                     style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                                 )
                             }
 
                             val focusItems = listOf(
                                 TimeRailItem(
-                                    time = "09:00",
-                                    title = "Review PR #342",
-                                    subtitle = "Auth token lifecycle edge case",
+                                    time = "06:00 PM",
+                                    title = "Deploy v1.5.0 live GitHub API",
+                                    subtitle = "Verify live commit streaming on DarkModeStudio",
                                     isCurrent = true,
+                                    agent = "Antigravity"
+                                ),
+                                TimeRailItem(
+                                    time = "07:30 PM",
+                                    title = "Verify Google OAuth Web Client ID",
+                                    subtitle = "Credential Manager sign-in on SecondMe",
+                                    isCurrent = false,
                                     agent = "Codex"
                                 ),
                                 TimeRailItem(
-                                    time = "11:00",
-                                    title = "Push build to Internal Track",
-                                    subtitle = "Google Play Console v1.0.0-rc2",
+                                    time = "10:00 PM",
+                                    title = "Confirm deployment & verify telemetry",
+                                    subtitle = "Edge logs & Cloudflare Worker metrics",
                                     isCurrent = false,
                                     agent = "Claude"
-                                ),
-                                TimeRailItem(
-                                    time = "16:30",
-                                    title = "Confirm deployment",
-                                    subtitle = "Edge logs & Cloudflare Worker telemetry",
-                                    isCurrent = false,
-                                    agent = "Antigravity"
                                 )
                             )
 
@@ -192,7 +196,7 @@ fun ExecutionScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        val filters = listOf("All Tasks", "My Tasks", "Watchlist")
+                        val filters = listOf("All Tasks", "My Tasks", "Watchlist", "Done")
                         items(filters) { filter ->
                             DmsFilterCapsule(
                                 text = filter,
@@ -203,7 +207,7 @@ fun ExecutionScreen(
                     }
                 }
 
-                // TASK ITEMS
+                // TASK ITEMS with Exact Date and Time
                 items(filteredTasks) { task ->
                     TaskFeedCard(
                         task = task,
@@ -221,7 +225,7 @@ fun ExecutionScreen(
             }
         }
 
-        // Floating Action Button: Pure white circle with black plus
+        // Floating Action Button: Add Task
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -283,7 +287,9 @@ private fun TaskFeedCard(
     val isDone = task.status == TaskStatus.DONE
 
     DmsCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
         shape = DmsRadii.ShapeR16,
         backgroundColor = DmsColors.Surface01,
         padding = 12.dp
@@ -298,7 +304,7 @@ private fun TaskFeedCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                // Interactive Checkbox Box
+                // Interactive Checkbox
                 Box(
                     modifier = Modifier
                         .size(22.dp)
@@ -342,7 +348,7 @@ private fun TaskFeedCard(
                         )
                     }
 
-                    // Capsules row: Project, Priority, Assigned Agent, Due
+                    // Capsules row: Project, Priority, Assigned Agent, Due Date and Time
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -363,7 +369,7 @@ private fun TaskFeedCard(
                         }
 
                         Text(
-                            text = "Due ${task.dueTime}",
+                            text = if (isDone) "Completed: ${task.dueTime}" else "Due: ${task.dueTime}",
                             style = DmsTheme.typography.caption.copy(
                                 fontSize = 9.5.sp,
                                 color = DmsColors.White48
@@ -377,7 +383,9 @@ private fun TaskFeedCard(
                 imageVector = Icons.Outlined.MoreVert,
                 contentDescription = null,
                 tint = DmsColors.White32,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier
+                    .size(18.dp)
+                    .clickable(onClick = onToggle)
             )
         }
     }

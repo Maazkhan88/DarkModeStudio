@@ -23,11 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudQueue
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Storage
-import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +32,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,6 +53,11 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 import com.darkmodestudio.commandcenter.core.model.Project
+import com.darkmodestudio.commandcenter.core.model.ProjectStatus
+import com.darkmodestudio.commandcenter.core.model.TaskStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
@@ -71,11 +71,21 @@ fun HomeScreen(
     onNavigateToHealth: () -> Unit,
     onNavigateToExecution: () -> Unit,
     onNavigateToUpdates: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onManualSync: (() -> Unit)? = null
 ) {
     val projects by projectRepository.projects.collectAsState(initial = emptyList())
+    val tasks by taskRepository.tasks.collectAsState(initial = emptyList())
     val agents by agentRepository.agents.collectAsState(initial = emptyList())
     val integrations by healthRepository.integrations.collectAsState(initial = emptyList())
+
+    val todayDateFormatted = SimpleDateFormat("EEEE, MMM dd", Locale.US).format(Date())
+
+    val doneTasksCount = tasks.count { it.status == TaskStatus.DONE }
+    val totalTasksCount = tasks.size
+    val pendingTasksCount = tasks.count { it.status == TaskStatus.PENDING }
+    val blockedTasksCount = tasks.count { it.status == TaskStatus.BLOCKED }
+    val activeProjectsCount = projects.count { it.status == ProjectStatus.ON_TRACK || it.status == ProjectStatus.IN_PROGRESS }
 
     Column(
         modifier = Modifier
@@ -97,10 +107,12 @@ fun HomeScreen(
                 .padding(horizontal = DmsSpacing.ScreenHorizontal),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // HERO — TODAY
+            // HERO — TODAY (Tap triggers real manual cloud sync)
             item {
                 DmsHeroCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onManualSync?.invoke() },
                     shape = DmsRadii.ShapeR22,
                     backgroundColor = DmsColors.Surface01,
                     padding = 20.dp
@@ -116,7 +128,7 @@ fun HomeScreen(
                                 style = DmsTheme.typography.displayL.copy(fontSize = 32.sp)
                             )
                             Text(
-                                text = "Sunday, Aug 30",
+                                text = todayDateFormatted,
                                 style = DmsTheme.typography.bodySmall.copy(color = DmsColors.White64),
                                 modifier = Modifier.padding(top = 2.dp)
                             )
@@ -140,7 +152,7 @@ fun HomeScreen(
                 }
             }
 
-            // HERO METRICS (4 equal metrics with 1dp 24dp tall vertical dividers)
+            // HERO METRICS (4 equal interactive metrics)
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -153,13 +165,37 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        HeroMetricItem(title = "Focus Score", value = "94", modifier = Modifier.weight(1f))
+                        HeroMetricItem(
+                            title = "Focus Score",
+                            value = "94",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToUpdates)
+                        )
                         MetricDivider()
-                        HeroMetricItem(title = "Deep Work", value = "4.2h", modifier = Modifier.weight(1f))
+                        HeroMetricItem(
+                            title = "Deep Work",
+                            value = "4.2h",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToExecution)
+                        )
                         MetricDivider()
-                        HeroMetricItem(title = "Tasks Done", value = "12/20", modifier = Modifier.weight(1f))
+                        HeroMetricItem(
+                            title = "Tasks Done",
+                            value = "$doneTasksCount/$totalTasksCount",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToExecution)
+                        )
                         MetricDivider()
-                        HeroMetricItem(title = "Projects Active", value = "5", modifier = Modifier.weight(1f))
+                        HeroMetricItem(
+                            title = "Projects Active",
+                            value = "$activeProjectsCount",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onNavigateToProjects)
+                        )
                     }
                 }
             }
@@ -201,8 +237,8 @@ fun HomeScreen(
                             }
                         }
 
-                        // Project Rows
-                        projects.take(3).forEach { project ->
+                        // Real Project Rows
+                        projects.take(4).forEach { project ->
                             HomeProjectRow(
                                 project = project,
                                 onClick = { onNavigateToProject(project.id) }
@@ -244,7 +280,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(integrations.take(4)) { item ->
+                        items(integrations) { item ->
                             HomeIntegrationTile(
                                 name = item.name,
                                 status = item.health.displayName,
@@ -291,7 +327,7 @@ fun HomeScreen(
                 }
             }
 
-            // TASKS + REMINDER (Two cards)
+            // TASKS + REMINDER (Dynamic Counts & Exact Dates)
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -323,15 +359,15 @@ fun HomeScreen(
                                 )
                             }
                             Text(
-                                text = "12 Done",
+                                text = "$doneTasksCount Done",
                                 style = DmsTheme.typography.caption.copy(color = DmsColors.White)
                             )
                             Text(
-                                text = "8 Pending",
+                                text = "$pendingTasksCount Pending",
                                 style = DmsTheme.typography.caption.copy(color = DmsColors.White64)
                             )
                             Text(
-                                text = "2 Blocked",
+                                text = "$blockedTasksCount Blocked",
                                 style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                             )
                         }
@@ -373,12 +409,12 @@ fun HomeScreen(
                                     maxLines = 1
                                 )
                                 Text(
-                                    text = "in 19 minutes",
+                                    text = "Aug 30 • 05:00 PM",
                                     style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                                 )
                             }
 
-                            // Page dots (5dp white / White20, 6dp gap)
+                            // Page dots
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -407,7 +443,7 @@ fun HomeScreen(
                 }
             }
 
-            // Bottom space for floating bottom navigation bar
+            // Bottom space for floating navigation bar
             item {
                 Spacer(modifier = Modifier.height(72.dp))
             }

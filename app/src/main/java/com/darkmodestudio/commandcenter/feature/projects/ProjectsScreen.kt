@@ -57,6 +57,10 @@ fun ProjectsScreen(
     val projects by projectRepository.projects.collectAsState(initial = emptyList())
     var selectedFilter by remember { mutableStateOf("All") }
 
+    val activeCount = projects.count { it.status == ProjectStatus.ON_TRACK || it.status == ProjectStatus.IN_PROGRESS }
+    val doneCount = projects.count { it.status == ProjectStatus.DONE }
+    val blockedCount = projects.count { it.status == ProjectStatus.BLOCKED || it.status == ProjectStatus.WAITING }
+
     val filteredProjects = remember(projects, selectedFilter) {
         when (selectedFilter) {
             "Active" -> projects.filter { it.status == ProjectStatus.ON_TRACK || it.status == ProjectStatus.IN_PROGRESS }
@@ -100,7 +104,7 @@ fun ProjectsScreen(
                 }
             }
 
-            // Top Summary (3 columns: Active, Completed, Blocked)
+            // Top Summary (Dynamic Counts)
             item {
                 DmsCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -113,11 +117,29 @@ fun ProjectsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SummaryColumn(value = "5", label = "Active", modifier = Modifier.weight(1f))
+                        SummaryColumn(
+                            value = "$activeCount",
+                            label = "Active",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFilter = "Active" }
+                        )
                         Divider()
-                        SummaryColumn(value = "12", label = "Completed", modifier = Modifier.weight(1f))
+                        SummaryColumn(
+                            value = "$doneCount",
+                            label = "Completed",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFilter = "Done" }
+                        )
                         Divider()
-                        SummaryColumn(value = "2", label = "Blocked", modifier = Modifier.weight(1f))
+                        SummaryColumn(
+                            value = "$blockedCount",
+                            label = "Blocked",
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFilter = "Waiting" }
+                        )
                     }
                 }
             }
@@ -139,7 +161,7 @@ fun ProjectsScreen(
                 }
             }
 
-            // Project Cards (Radius 18dp, margin bottom 8dp, padding 12dp)
+            // Project Cards
             items(filteredProjects) { project ->
                 ProjectItemCard(
                     project = project,
@@ -310,7 +332,7 @@ private fun ProjectItemCard(
                 )
             }
 
-            // Row 3: Metadata (Owner, Due Date, Next Milestone)
+            // Row 3: Metadata (Next Milestone, Due Date, and exact timestamp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -321,12 +343,14 @@ private fun ProjectItemCard(
                     style = DmsTheme.typography.caption.copy(
                         fontSize = 10.sp,
                         color = DmsColors.White64
-                    )
+                    ),
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 Text(
-                    text = "Due: ${project.dueDate}",
+                    text = "${project.lastUpdate}",
                     style = DmsTheme.typography.caption.copy(
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         color = DmsColors.White32
                     )
                 )
