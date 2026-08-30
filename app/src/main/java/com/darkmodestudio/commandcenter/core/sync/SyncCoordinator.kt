@@ -6,6 +6,9 @@ import com.darkmodestudio.commandcenter.core.network.GitHubConnector
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 enum class SyncMode {
@@ -32,46 +35,38 @@ class SyncCoordinator(
     private val cloudflareConnector: CloudflareConnector = CloudflareConnector()
 ) {
 
+    private val _syncState = MutableStateFlow(SyncState())
+    val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+
+    private val syncers: List<ProviderSyncer> = listOf(
+        GitHubSyncer(database, keystoreCredentialManager, gitHubConnector)
+    )
+
     suspend fun syncAll(mode: SyncMode): List<ProviderSyncResult> = withContext(Dispatchers.IO) {
+        _syncState.value = _syncState.value.copy(status = SyncStatus.SYNCING)
         val results = mutableListOf<ProviderSyncResult>()
 
-        // 1. Sync GitHub if credentials exist
-        try {
-            results.add(
-                ProviderSyncResult(
-                    provider = SecureProvider.GITHUB,
-                    isSuccess = true,
-                    message = "GitHub telemetry synchronized"
+        for (syncer in syncers) {
+            try {
+                val result = syncer.sync(mode)
+                results.add(result)
+            } catch (e: Exception) {
+                results.add(
+                    ProviderSyncResult(
+                        provider = syncer.provider,
+                        isSuccess = false,
+                        message = e.message ?: "Sync error"
+                    )
                 )
-            )
-        } catch (e: Exception) {
-            results.add(
-                ProviderSyncResult(
-                    provider = SecureProvider.GITHUB,
-                    isSuccess = false,
-                    message = e.message ?: "GitHub sync failed"
-                )
-            )
+            }
         }
 
-        // 2. Sync Cloudflare
-        try {
-            results.add(
-                ProviderSyncResult(
-                    provider = SecureProvider.CLOUDFLARE,
-                    isSuccess = true,
-                    message = "Cloudflare zones verified"
-                )
-            )
-        } catch (e: Exception) {
-            results.add(
-                ProviderSyncResult(
-                    provider = SecureProvider.CLOUDFLARE,
-                    isSuccess = false,
-                    message = e.message ?: "Cloudflare sync failed"
-                )
-            )
-        }
+        val allSuccess = results.all { it.isSuccess }
+        _syncState.value = SyncState(
+            status = if (allSuccess) SyncStatus.SUCCESS else SyncStatus.ERROR,
+            lastSyncTimestamp = System.currentTimeMillis(),
+            providerResults = results
+        )
 
         results
     }

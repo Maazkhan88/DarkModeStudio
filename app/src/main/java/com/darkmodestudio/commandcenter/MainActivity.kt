@@ -21,7 +21,11 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DarkModeStudioTh
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.sync.SyncCoordinator
+import com.darkmodestudio.commandcenter.core.sync.SyncMode
 import com.darkmodestudio.commandcenter.navigation.DmsNavHost
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +42,11 @@ class MainActivity : ComponentActivity() {
         val healthRepository = HealthRepository(database.integrationDao())
         val notificationRepository = NotificationRepository(database.notificationDao(), database.reminderDao(), database.settingsDao())
         val settingsRepository = SettingsRepository(database.settingsDao(), database.automationDao())
+
+        // Foreground Sync: Instant Room cached state is displayed immediately, background refresh syncs incrementally
+        CoroutineScope(Dispatchers.IO).launch {
+            syncCoordinator.syncAll(SyncMode.FOREGROUND)
+        }
 
         setContent {
             DarkModeStudioTheme {
