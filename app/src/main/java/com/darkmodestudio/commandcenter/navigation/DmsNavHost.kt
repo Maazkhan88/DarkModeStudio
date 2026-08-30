@@ -244,6 +244,7 @@ fun DmsNavHost(
                 currentRoute = currentRoute,
                 onDismissRequest = { showGlobalActionSheet = false },
                 onSelectAction = { action ->
+                    showGlobalActionSheet = false
                     when (action) {
                         ActionType.NEW_TASK -> showCreateTaskSheet = true
                         ActionType.NEW_PROJECT -> showCreateProjectSheet = true

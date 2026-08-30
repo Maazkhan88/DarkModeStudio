@@ -47,6 +47,24 @@ fun ConnectServiceSheet(
     var token by remember { mutableStateOf("") }
     var alias by remember { mutableStateOf("Personal Read-Only Key") }
 
+    val placeholderText = when (selectedProvider.first) {
+        SecureProvider.GITHUB -> "ghp_..."
+        SecureProvider.CLOUDFLARE -> "Cloudflare API Token"
+        SecureProvider.OPENAI -> "sk-proj-..."
+        SecureProvider.ANTHROPIC -> "sk-ant-..."
+        SecureProvider.SUPABASE -> "eyJhbGciOi..."
+        else -> "API Secret Key"
+    }
+
+    val hintText = when (selectedProvider.first) {
+        SecureProvider.GITHUB -> "Create a Personal Access Token with 'repo', 'read:org', and 'workflow' scopes at github.com/settings/tokens."
+        SecureProvider.CLOUDFLARE -> "Create an API Token with Zone:Read and Workers:Read permissions at dash.cloudflare.com/profile/api-tokens."
+        SecureProvider.OPENAI -> "Create a secret API key at platform.openai.com/api-keys."
+        SecureProvider.ANTHROPIC -> "Generate an API key in the Anthropic Console at console.anthropic.com."
+        SecureProvider.SUPABASE -> "Copy your Project URL and anon / service_role key from Supabase Project Settings -> API."
+        else -> "Credentials are stored securely inside Android Keystore."
+    }
+
     DmsModalBottomSheet(
         onDismissRequest = onDismissRequest,
         title = "Connect Service",
@@ -69,7 +87,10 @@ fun ConnectServiceSheet(
                         DmsFilterCapsule(
                             text = name,
                             isSelected = selectedProvider.first == p,
-                            onClick = { selectedProvider = p to name }
+                            onClick = {
+                                selectedProvider = p to name
+                                alias = "$name API Key"
+                            }
                         )
                     }
                 }
@@ -87,11 +108,28 @@ fun ConnectServiceSheet(
             DmsTextField(
                 value = token,
                 onValueChange = { token = it },
-                placeholder = "ghp_... or Bearer Token",
+                placeholder = placeholderText,
                 label = "API Token / Secret",
                 singleLine = false,
                 minHeight = 50
             )
+
+            // Provider-specific instructions card
+            DmsCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = DmsRadii.ShapeR12,
+                backgroundColor = DmsColors.Surface02,
+                padding = 10.dp
+            ) {
+                Text(
+                    text = hintText,
+                    style = DmsTheme.typography.caption.copy(
+                        fontSize = 10.5.sp,
+                        color = DmsColors.White80,
+                        lineHeight = 15.sp
+                    )
+                )
+            }
 
             // Keystore info card
             DmsCard(
