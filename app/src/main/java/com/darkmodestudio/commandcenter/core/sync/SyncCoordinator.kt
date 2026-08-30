@@ -48,8 +48,7 @@ class SyncCoordinator(
         GitHubSyncer(database, keystoreCredentialManager, gitHubConnector),
         CloudflareSyncer(database, keystoreCredentialManager, cloudflareConnector),
         SupabaseSyncer(database, keystoreCredentialManager, supabaseConnector),
-        VercelSyncer(database, keystoreCredentialManager, vercelConnector),
-        AgentUsageSyncer(database, keystoreCredentialManager)
+        VercelSyncer(database, keystoreCredentialManager, vercelConnector)
     )
 
     suspend fun syncAll(mode: SyncMode): List<ProviderSyncResult> = withContext(Dispatchers.IO) {

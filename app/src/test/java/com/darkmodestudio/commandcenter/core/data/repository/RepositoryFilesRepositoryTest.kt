@@ -45,6 +45,60 @@ class RepositoryFilesRepositoryTest {
     }
 
     @Test
+    fun loadDirectory_unlinkedProject_returnsNotLinkedState() = runBlocking {
+        val filesRepo = RepositoryFilesRepository(
+            gitHubConnector = GitHubConnector(),
+            keystoreCredentialManager = keystoreManager,
+            repositoryFileDao = database.repositoryFileDao()
+        )
+
+        filesRepo.loadDirectory(repoFullName = null)
+        val stateNull = filesRepo.filesState.first()
+        assertTrue(stateNull is RepositoryFilesState.NotLinked)
+
+        filesRepo.loadDirectory(repoFullName = "")
+        val stateEmpty = filesRepo.filesState.first()
+        assertTrue(stateEmpty is RepositoryFilesState.NotLinked)
+    }
+
+    @Test
+    fun loadDirectory_nonMainDefaultBranch_passesRefAndReportsBranch() = runBlocking {
+        var capturedUrl = ""
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                capturedUrl = chain.request().url.toString()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("[{\"name\": \"feature.txt\", \"path\": \"feature.txt\", \"sha\": \"sha123\", \"size\": 100, \"type\": \"file\"}]".toResponseBody("application/json".toMediaTypeOrNull()))
+                    .build()
+            })
+            .build()
+
+        val connector = GitHubConnector(mockClient)
+        val filesRepo = RepositoryFilesRepository(
+            gitHubConnector = connector,
+            keystoreCredentialManager = keystoreManager,
+            repositoryFileDao = database.repositoryFileDao()
+        )
+
+        filesRepo.loadDirectory(
+            repoFullName = "Maazkhan88/DarkModeStudio",
+            branch = "develop",
+            path = ""
+        )
+
+        val state = filesRepo.filesState.first()
+        assertTrue(state is RepositoryFilesState.Loaded)
+        val loaded = state as RepositoryFilesState.Loaded
+        assertEquals("develop", loaded.branch)
+        assertEquals("Maazkhan88/DarkModeStudio", loaded.repository)
+        assertTrue(capturedUrl.contains("ref=develop"))
+    }
+
+    @Test
     fun loadDirectory_rootAndNavigation_persistsToRoomAndUpdatesState() = runBlocking {
         val rootContentsJson = """
             [
@@ -104,7 +158,7 @@ class RepositoryFilesRepositoryTest {
         )
 
         // 1. Load Root Directory
-        filesRepo.loadDirectory("Maazkhan88/DarkModeStudio", "")
+        filesRepo.loadDirectory("Maazkhan88/DarkModeStudio", "main", "")
         val rootState = filesRepo.filesState.first()
         assertTrue("State should be Loaded", rootState is RepositoryFilesState.Loaded)
         val loadedRoot = rootState as RepositoryFilesState.Loaded
@@ -158,7 +212,7 @@ class RepositoryFilesRepositoryTest {
             repositoryFileDao = database.repositoryFileDao()
         )
 
-        filesRepo.loadDirectory("Maazkhan88/PrivateRepo", "")
+        filesRepo.loadDirectory("Maazkhan88/PrivateRepo", "main", "")
         val state = filesRepo.filesState.first()
         assertTrue("State should be Error", state is RepositoryFilesState.Error)
         assertTrue((state as RepositoryFilesState.Error).message.contains("401"))

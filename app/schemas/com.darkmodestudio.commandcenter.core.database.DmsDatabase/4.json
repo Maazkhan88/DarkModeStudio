@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 4,
-    "identityHash": "81b343b1d29f50ae51d109db735fd323",
+    "identityHash": "0927fbc4ada8ffc9b8bdf304d0517607",
     "entities": [
       {
         "tableName": "projects",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `iconTag` TEXT NOT NULL, `status` TEXT NOT NULL, `isMvp` INTEGER NOT NULL, `owner` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `dueDate` TEXT NOT NULL, `nextMilestone` TEXT NOT NULL, `manualProgressOverride` REAL, `planningWeight` REAL NOT NULL, `developmentWeight` REAL NOT NULL, `testingWeight` REAL NOT NULL, `deploymentWeight` REAL NOT NULL, `lastUpdate` TEXT NOT NULL, `repositoryFullName` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `iconTag` TEXT NOT NULL, `status` TEXT NOT NULL, `isMvp` INTEGER NOT NULL, `owner` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `dueDate` TEXT NOT NULL, `nextMilestone` TEXT NOT NULL, `manualProgressOverride` REAL, `planningWeight` REAL NOT NULL, `developmentWeight` REAL NOT NULL, `testingWeight` REAL NOT NULL, `deploymentWeight` REAL NOT NULL, `lastUpdate` TEXT NOT NULL, `repositoryFullName` TEXT, `repositoryDefaultBranch` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -107,6 +107,12 @@
           {
             "fieldPath": "repositoryFullName",
             "columnName": "repositoryFullName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "repositoryDefaultBranch",
+            "columnName": "repositoryDefaultBranch",
             "affinity": "TEXT",
             "notNull": false
           }
@@ -421,13 +427,14 @@
         },
         "indices": [
           {
-            "name": "index_tasks_projectId",
+            "name": "index_tasks_projectId_status",
             "unique": false,
             "columnNames": [
-              "projectId"
+              "projectId",
+              "status"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_projectId` ON `${TABLE_NAME}` (`projectId`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tasks_projectId_status` ON `${TABLE_NAME}` (`projectId`, `status`)"
           },
           {
             "name": "index_tasks_status",
@@ -1310,7 +1317,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '81b343b1d29f50ae51d109db735fd323')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0927fbc4ada8ffc9b8bdf304d0517607')"
     ]
   }
 }

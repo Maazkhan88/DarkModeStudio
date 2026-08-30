@@ -9,7 +9,6 @@
 .externalNativeBuild
 .cxx
 *.apk
-!DarkModeStudio-debug.apk
 .kotlin/
 *.log
 .dms-worktrees/

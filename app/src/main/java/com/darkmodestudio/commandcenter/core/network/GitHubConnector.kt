@@ -274,14 +274,20 @@ class GitHubConnector(
     suspend fun fetchRepoContents(
         token: String?,
         fullName: String,
-        path: String = ""
+        path: String = "",
+        branch: String? = null
     ): GitHubContentsResult = withContext(Dispatchers.IO) {
         if (token.isNullOrBlank()) return@withContext GitHubContentsResult.NoCredentials
         val cleanPath = path.trim().trimStart('/')
-        val url = if (cleanPath.isBlank()) {
+        val baseUrl = if (cleanPath.isBlank()) {
             "https://api.github.com/repos/$fullName/contents"
         } else {
             "https://api.github.com/repos/$fullName/contents/$cleanPath"
+        }
+        val url = if (!branch.isNullOrBlank()) {
+            "$baseUrl?ref=$branch"
+        } else {
+            baseUrl
         }
 
         try {

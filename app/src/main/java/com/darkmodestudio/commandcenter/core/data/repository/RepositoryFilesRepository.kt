@@ -21,6 +21,7 @@ data class RepositoryFileEntry(
 )
 
 sealed interface RepositoryFilesState {
+    data object NotLinked : RepositoryFilesState
     data object Disconnected : RepositoryFilesState
     data object Loading : RepositoryFilesState
     data class Loaded(
@@ -41,14 +42,26 @@ class RepositoryFilesRepository(
     val filesState: StateFlow<RepositoryFilesState> = _filesState.asStateFlow()
 
     private var currentRepo: String? = null
+    private var currentBranch: String = "main"
     private var currentPath: String = ""
 
+    fun setNotLinked() {
+        _filesState.value = RepositoryFilesState.NotLinked
+    }
+
     suspend fun loadDirectory(
-        repoFullName: String,
+        repoFullName: String?,
+        branch: String? = "main",
         path: String = "",
         forceRefresh: Boolean = false
     ) = withContext(Dispatchers.IO) {
+        if (repoFullName.isNullOrBlank()) {
+            _filesState.value = RepositoryFilesState.NotLinked
+            return@withContext
+        }
+
         currentRepo = repoFullName
+        currentBranch = branch ?: "main"
         currentPath = path
 
         val token = keystoreCredentialManager.getSecret("token_github")
@@ -63,7 +76,7 @@ class RepositoryFilesRepository(
             if (cached.isNotEmpty()) {
                 _filesState.value = RepositoryFilesState.Loaded(
                     repository = repoFullName,
-                    branch = "main",
+                    branch = currentBranch,
                     path = path,
                     entries = cached.map { it.toDomain() }
                 )
@@ -73,8 +86,8 @@ class RepositoryFilesRepository(
 
         _filesState.value = RepositoryFilesState.Loading
 
-        // 2. Fetch live from GitHub Contents API
-        when (val result = gitHubConnector.fetchRepoContents(token, repoFullName, path)) {
+        // 2. Fetch live from GitHub Contents API with explicit branch ref
+        when (val result = gitHubConnector.fetchRepoContents(token, repoFullName, path, currentBranch)) {
             is GitHubContentsResult.Success -> {
                 val entries = result.entries.map { dto ->
                     RepositoryFileEntry(
@@ -109,7 +122,7 @@ class RepositoryFilesRepository(
 
                 _filesState.value = RepositoryFilesState.Loaded(
                     repository = repoFullName,
-                    branch = "main",
+                    branch = currentBranch,
                     path = path,
                     entries = entries
                 )
@@ -135,7 +148,7 @@ class RepositoryFilesRepository(
     suspend fun navigateTo(subFolderName: String) {
         val repo = currentRepo ?: return
         val newPath = if (currentPath.isBlank()) subFolderName else "$currentPath/$subFolderName"
-        loadDirectory(repo, newPath)
+        loadDirectory(repo, currentBranch, newPath)
     }
 
     suspend fun navigateUp() {
@@ -146,12 +159,12 @@ class RepositoryFilesRepository(
         } else {
             ""
         }
-        loadDirectory(repo, parentPath)
+        loadDirectory(repo, currentBranch, parentPath)
     }
 
     suspend fun refresh() {
         val repo = currentRepo ?: return
-        loadDirectory(repo, currentPath, forceRefresh = true)
+        loadDirectory(repo, currentBranch, currentPath, forceRefresh = true)
     }
 }
 

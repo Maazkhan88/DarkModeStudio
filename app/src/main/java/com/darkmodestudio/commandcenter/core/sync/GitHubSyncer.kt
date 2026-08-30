@@ -10,6 +10,7 @@ import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.model.ProjectStatus
 import com.darkmodestudio.commandcenter.core.network.GitHubConnector
 import com.darkmodestudio.commandcenter.core.network.GitHubSyncStatus
+import com.darkmodestudio.commandcenter.core.network.GitHubTelemetryComponent
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
 import com.darkmodestudio.commandcenter.core.util.DmsTimeFormatter
@@ -139,13 +140,12 @@ class GitHubSyncer(
             else -> {}
         }
 
-        // 1. Ingest Real Repositories as Real Projects in Room SQLite (NO synthetic fields)
+        // 1. Ingest Real Repositories as Real Projects in Room SQLite (NO synthetic project management fields)
         if (result.repos.isNotEmpty()) {
             val liveProjects = result.repos.map { repo ->
                 val id = repo.name.lowercase().replace(" ", "-")
                 val iconTag = repo.name.take(2).uppercase()
-                val latestCommit = result.commitsByRepo[repo.fullName]?.firstOrNull()
-                val latestMessage = latestCommit?.commit?.message?.lines()?.firstOrNull()?.take(40) ?: "Active Repository"
+                val existingProject = database.projectDao().getProjectById(id)
                 val exactLastUpdate = DmsTimeFormatter.parseIsoToLocal(repo.pushedAt ?: repo.updatedAt) ?: "Unknown"
                 val createdDate = DmsTimeFormatter.parseIsoToLocalDateOnly(repo.createdAt) ?: DmsTimeFormatter.parseIsoToLocalDateOnly(repo.pushedAt) ?: "Unknown"
 
@@ -154,15 +154,20 @@ class GitHubSyncer(
                     name = repo.name,
                     description = repo.description ?: "Repository ${repo.fullName}",
                     iconTag = iconTag,
-                    status = ProjectStatus.ON_TRACK,
-                    isMvp = false,
+                    status = existingProject?.status ?: ProjectStatus.IN_PROGRESS,
+                    isMvp = existingProject?.isMvp ?: false,
                     owner = repo.fullName.substringBefore("/"),
                     createdAt = createdDate,
-                    dueDate = "",
-                    nextMilestone = latestMessage,
-                    manualProgressOverride = null,
+                    dueDate = existingProject?.dueDate ?: "",
+                    nextMilestone = existingProject?.nextMilestone ?: "",
+                    manualProgressOverride = existingProject?.manualProgressOverride,
+                    planningWeight = existingProject?.planningWeight ?: 0.15f,
+                    developmentWeight = existingProject?.developmentWeight ?: 0.45f,
+                    testingWeight = existingProject?.testingWeight ?: 0.20f,
+                    deploymentWeight = existingProject?.deploymentWeight ?: 0.20f,
                     lastUpdate = exactLastUpdate,
-                    repositoryFullName = repo.fullName
+                    repositoryFullName = repo.fullName,
+                    repositoryDefaultBranch = repo.defaultBranch
                 )
             }
             database.projectDao().insertProjects(liveProjects)
@@ -216,7 +221,32 @@ class GitHubSyncer(
         }
         val primaryRepoName = result.repos.firstOrNull()?.fullName ?: "Configured GitHub Account"
 
-        // 4. Update Integration Entity
+        // 4. Read existing metrics before touching IntegrationEntity (avoids CASCADE delete loss)
+        val existingMetrics = database.integrationDao().getMetricsByIntegration("github").associateBy { it.label }
+        val prFailed = result.failures.any { it.component == GitHubTelemetryComponent.PULL_REQUESTS }
+        val workflowsFailed = result.failures.any { it.component == GitHubTelemetryComponent.WORKFLOWS }
+
+        val openPRMetricValue = if (prFailed && existingMetrics.containsKey("Open PRs")) {
+            existingMetrics["Open PRs"]!!.value
+        } else if (prFailed) {
+            "Unavailable (500)"
+        } else {
+            val openPRCount = result.pullsByRepo.values.flatten().size
+            "$openPRCount open PRs"
+        }
+
+        val workflowsMetricValue = if (workflowsFailed && existingMetrics.containsKey("Workflows")) {
+            existingMetrics["Workflows"]!!.value
+        } else if (workflowsFailed) {
+            "Unavailable (500)"
+        } else {
+            "$totalPassing passing / $totalFailing failing"
+        }
+
+        val latestPushIso = result.repos.mapNotNull { it.pushedAt }.maxOrNull()
+        val lastPushFormatted = latestPushIso?.let { DmsTimeFormatter.parseIsoToLocal(it) } ?: "No push history"
+
+        // 5. Update Integration Entity
         val updatedIntegration = IntegrationEntity(
             id = "github",
             name = "GitHub",
@@ -229,17 +259,16 @@ class GitHubSyncer(
         )
         database.integrationDao().insertIntegration(updatedIntegration)
 
-        // 5. Update Metrics
-        val openPRCount = result.pullsByRepo.values.flatten().size
+        // 6. Update Metrics
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = primaryRepoName),
-            IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = nowFormatted),
-            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "$openPRCount open PRs"),
-            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "$totalPassing passing / $totalFailing failing")
+            IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = lastPushFormatted),
+            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = openPRMetricValue),
+            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = workflowsMetricValue)
         )
         database.integrationDao().insertMetrics(metrics)
 
-        // 6. Ingest Incident if failing CI
+        // 7. Ingest Incident if failing CI
         if (totalFailing > 0) {
             database.integrationDao().insertIncidents(
                 listOf(

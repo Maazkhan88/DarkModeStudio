@@ -227,7 +227,7 @@ fun ConnectStackScreen(
                                 )
                             )
                             Text(
-                                text = "Credentials are encrypted using device-protected Android Keystore keys.",
+                                text = "Credentials are encrypted using Android Keystore keys.",
                                 style = DmsTheme.typography.caption.copy(
                                     fontSize = 10.sp,
                                     color = DmsColors.White48

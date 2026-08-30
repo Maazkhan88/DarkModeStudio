@@ -95,7 +95,7 @@ class RoomMigrationTest {
     }
 
     @Test
-    fun migration2to3_createsTasksPerformanceIndexes() {
+    fun migration2to3_createsTasksCompositePerformanceIndexes() {
         val context = RuntimeEnvironment.getApplication()
         val dbName = "test_mig_2_3.db"
         val dbFile = context.getDatabasePath(dbName)
@@ -155,12 +155,31 @@ class RoomMigrationTest {
         assertEquals("Task 1", cursor.getString(cursor.getColumnIndexOrThrow("title")))
         cursor.close()
 
+        // Verify Composite Index exists on SQLite table
+        val cursorIndex = dbV3.query("PRAGMA index_list('tasks')")
+        val indexes = mutableListOf<String>()
+        while (cursorIndex.moveToNext()) {
+            indexes.add(cursorIndex.getString(cursorIndex.getColumnIndexOrThrow("name")))
+        }
+        cursorIndex.close()
+        assertTrue("Index index_tasks_projectId_status must exist", indexes.contains("index_tasks_projectId_status"))
+        assertTrue("Index index_tasks_status must exist", indexes.contains("index_tasks_status"))
+
+        // Verify index columns on index_tasks_projectId_status
+        val cursorInfo = dbV3.query("PRAGMA index_info('index_tasks_projectId_status')")
+        val cols = mutableListOf<String>()
+        while (cursorInfo.moveToNext()) {
+            cols.add(cursorInfo.getString(cursorInfo.getColumnIndexOrThrow("name")))
+        }
+        cursorInfo.close()
+        assertEquals(listOf("projectId", "status"), cols)
+
         dbV3.close()
         helperV3.close()
     }
 
     @Test
-    fun migration3to4_addsRepositoryFullNameAndFileEntriesTable() {
+    fun migration3to4_addsRepositoryFullNameAndBranchAndFileEntriesTable() {
         val context = RuntimeEnvironment.getApplication()
         val dbName = "test_mig_3_4.db"
         val dbFile = context.getDatabasePath(dbName)
@@ -220,11 +239,12 @@ class RoomMigrationTest {
         val helperV4 = factory.create(configV4)
         val dbV4 = helperV4.writableDatabase
 
-        // Update repositoryFullName on existing project
-        dbV4.execSQL("UPDATE projects SET repositoryFullName = 'Maazkhan88/SecondMe' WHERE id = 'p1'")
+        // Update repositoryFullName and repositoryDefaultBranch on existing project
+        dbV4.execSQL("UPDATE projects SET repositoryFullName = 'Maazkhan88/SecondMe', repositoryDefaultBranch = 'main' WHERE id = 'p1'")
         val cursorProj = dbV4.query("SELECT * FROM projects WHERE id = 'p1'")
         assertTrue(cursorProj.moveToFirst())
         assertEquals("Maazkhan88/SecondMe", cursorProj.getString(cursorProj.getColumnIndexOrThrow("repositoryFullName")))
+        assertEquals("main", cursorProj.getString(cursorProj.getColumnIndexOrThrow("repositoryDefaultBranch")))
         cursorProj.close()
 
         // Insert and read from repository_file_entries

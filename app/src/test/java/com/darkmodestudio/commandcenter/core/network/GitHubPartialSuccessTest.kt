@@ -2,10 +2,13 @@ package com.darkmodestudio.commandcenter.core.network
 
 import androidx.room.Room
 import com.darkmodestudio.commandcenter.core.database.DmsDatabase
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.sync.GitHubSyncer
 import com.darkmodestudio.commandcenter.core.sync.SyncMode
+import com.darkmodestudio.commandcenter.core.util.DmsTimeFormatter
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -47,7 +50,25 @@ class GitHubPartialSuccessTest {
     }
 
     @Test
-    fun partialFailure_whenPullRequestsFail500_mapsToDegradedHealth() = runBlocking {
+    fun partialFailure_whenPullRequestsFail500_preservesLastKnownGoodOpenPRs() = runBlocking {
+        // Pre-populate Room with valid last-known-good metrics
+        database.integrationDao().insertIntegration(
+            IntegrationEntity(
+                id = "github",
+                name = "GitHub",
+                category = "Code & CI/CD",
+                isConnected = true,
+                health = IntegrationHealth.OPERATIONAL,
+                primaryMetric = "All CI Actions Passing"
+            )
+        )
+        database.integrationDao().insertMetrics(
+            listOf(
+                IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "14 open PRs"),
+                IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "6 passing / 0 failing")
+            )
+        )
+
         val reposJson = """
             [
                 {
@@ -100,7 +121,7 @@ class GitHubPartialSuccessTest {
                             .protocol(Protocol.HTTP_1_1)
                             .code(200)
                             .message("OK")
-                            .body("{\"total_count\": 0, \"workflow_runs\": []}".toResponseBody("application/json".toMediaTypeOrNull()))
+                            .body("{\"total_count\": 1, \"workflow_runs\": [{\"id\": 1, \"name\": \"CI\", \"status\": \"completed\", \"conclusion\": \"success\"}]}".toResponseBody("application/json".toMediaTypeOrNull()))
                             .build()
                     }
                     else -> {
@@ -123,7 +144,7 @@ class GitHubPartialSuccessTest {
         assertTrue(result.isSuccess)
         assertTrue(result.message.contains("partial failures"))
 
-        // Integration health must be DEGRADED (NOT Operational)
+        // Integration health must be DEGRADED
         val integration = database.integrationDao().getIntegrationById("github")
         assertNotNull(integration)
         assertEquals(IntegrationHealth.DEGRADED, integration!!.health)
@@ -131,10 +152,37 @@ class GitHubPartialSuccessTest {
 
         // Repository data must still be safely ingested
         assertEquals(1, database.projectDao().getProjectCount())
+
+        // Metrics verification: Open PRs preserved as "14 open PRs" (NEVER overwritten with 0)
+        val metrics = database.integrationDao().getMetricsByIntegration("github").associateBy { it.label }
+        assertEquals("14 open PRs", metrics["Open PRs"]?.value)
+        assertEquals("1 passing / 0 failing", metrics["Workflows"]?.value)
+
+        // Last Push must match repo pushed_at formatted
+        val expectedLastPush = DmsTimeFormatter.parseIsoToLocal("2026-08-30T12:00:00Z")
+        assertEquals(expectedLastPush, metrics["Last Push"]?.value)
     }
 
     @Test
-    fun partialFailure_whenWorkflowsFail500_mapsToDegradedHealth() = runBlocking {
+    fun partialFailure_whenWorkflowsFail500_preservesLastKnownGoodWorkflows() = runBlocking {
+        // Pre-populate Room with valid last-known-good metrics
+        database.integrationDao().insertIntegration(
+            IntegrationEntity(
+                id = "github",
+                name = "GitHub",
+                category = "Code & CI/CD",
+                isConnected = true,
+                health = IntegrationHealth.OPERATIONAL,
+                primaryMetric = "All CI Actions Passing"
+            )
+        )
+        database.integrationDao().insertMetrics(
+            listOf(
+                IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "8 passing / 0 failing"),
+                IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "2 open PRs")
+            )
+        )
+
         val reposJson = """
             [
                 {
@@ -144,7 +192,7 @@ class GitHubPartialSuccessTest {
                     "private": false,
                     "description": "Headless commerce",
                     "created_at": "2026-08-30T10:00:00Z",
-                    "pushed_at": "2026-08-30T12:00:00Z"
+                    "pushed_at": "2026-08-30T15:30:00Z"
                 }
             ]
         """.trimIndent()
@@ -194,5 +242,9 @@ class GitHubPartialSuccessTest {
         val integration = database.integrationDao().getIntegrationById("github")
         assertNotNull(integration)
         assertEquals(IntegrationHealth.DEGRADED, integration!!.health)
+
+        val metrics = database.integrationDao().getMetricsByIntegration("github").associateBy { it.label }
+        assertEquals("8 passing / 0 failing", metrics["Workflows"]?.value)
+        assertEquals("0 open PRs", metrics["Open PRs"]?.value)
     }
 }

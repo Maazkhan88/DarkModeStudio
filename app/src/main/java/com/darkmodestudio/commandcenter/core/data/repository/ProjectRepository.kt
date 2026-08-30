@@ -42,7 +42,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
                 nextMilestone = entity.nextMilestone,
                 isMvp = entity.isMvp,
                 lastUpdate = entity.lastUpdate,
-                repositoryFullName = entity.repositoryFullName
+                repositoryFullName = entity.repositoryFullName,
+                repositoryDefaultBranch = entity.repositoryDefaultBranch
             )
         }
     }
@@ -56,7 +57,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
         nextMilestone: String,
         isMvp: Boolean = false,
         manualOverride: Float? = null,
-        repositoryFullName: String? = null
+        repositoryFullName: String? = null,
+        repositoryDefaultBranch: String? = null
     ): String {
         val id = name.lowercase().replace(" ", "").replace("-", "") + "_" + System.currentTimeMillis().toString().takeLast(4)
         val entity = ProjectEntity(
@@ -72,7 +74,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
             nextMilestone = nextMilestone,
             manualProgressOverride = manualOverride,
             lastUpdate = "Just now",
-            repositoryFullName = repositoryFullName
+            repositoryFullName = repositoryFullName,
+            repositoryDefaultBranch = repositoryDefaultBranch
         )
         projectDao?.insertProject(entity)
         return id
@@ -96,7 +99,8 @@ class ProjectRepository(private val projectDao: ProjectDao? = null) {
             testingWeight = project.phases.testing,
             deploymentWeight = project.phases.deployment,
             lastUpdate = "Just now",
-            repositoryFullName = project.repositoryFullName
+            repositoryFullName = project.repositoryFullName,
+            repositoryDefaultBranch = project.repositoryDefaultBranch
         )
         projectDao?.updateProject(entity)
     }
@@ -204,6 +208,7 @@ private fun ProjectWithDetails.toDomain(): Project {
                 timestamp = it.timestamp
             )
         },
-        repositoryFullName = project.repositoryFullName
+        repositoryFullName = project.repositoryFullName,
+        repositoryDefaultBranch = project.repositoryDefaultBranch
     )
 }

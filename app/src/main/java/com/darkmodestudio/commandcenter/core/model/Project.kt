@@ -55,5 +55,6 @@ data class Project(
     val assignedAgents: List<String> = emptyList(),
     val blockers: List<ProjectBlocker> = emptyList(),
     val activities: List<ProjectActivity> = emptyList(),
-    val repositoryFullName: String? = null
+    val repositoryFullName: String? = null,
+    val repositoryDefaultBranch: String? = null
 )

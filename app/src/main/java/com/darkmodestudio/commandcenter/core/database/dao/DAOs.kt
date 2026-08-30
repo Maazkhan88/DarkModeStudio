@@ -137,6 +137,9 @@ interface AgentDao {
     @Query("SELECT * FROM agents")
     fun getAgentsFlow(): Flow<List<AgentEntity>>
 
+    @Query("SELECT * FROM agents WHERE id = :id LIMIT 1")
+    suspend fun getAgentById(id: String): AgentEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAgents(agents: List<AgentEntity>)
 
@@ -164,6 +167,9 @@ interface IntegrationDao {
 
     @Query("SELECT * FROM integrations WHERE id = :id LIMIT 1")
     suspend fun getIntegrationById(id: String): IntegrationEntity?
+
+    @Query("SELECT * FROM integration_metrics WHERE integrationId = :integrationId")
+    suspend fun getMetricsByIntegration(integrationId: String): List<IntegrationMetricEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertIntegrations(integrations: List<IntegrationEntity>)
@@ -227,6 +233,9 @@ interface ReminderDao {
 interface AutomationDao {
     @Query("SELECT * FROM automation_rules ORDER BY isEnabled DESC")
     fun getAutomationRulesFlow(): Flow<List<AutomationRuleEntity>>
+
+    @Query("SELECT * FROM automation_rules WHERE id = :id LIMIT 1")
+    suspend fun getRuleById(id: String): AutomationRuleEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRule(rule: AutomationRuleEntity)

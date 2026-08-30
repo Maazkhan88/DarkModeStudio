@@ -59,21 +59,22 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 
 /**
- * Migration 2 -> 3: Adds performance indexes on tasks table
+ * Migration 2 -> 3: Adds performance indexes on tasks table (composite projectId + status, and status)
  */
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_projectId_status` ON `tasks` (`projectId`, `status`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_status` ON `tasks` (`status`)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_projectId` ON `tasks` (`projectId`)")
     }
 }
 
 /**
- * Migration 3 -> 4: Adds repositoryFullName to projects table & creates repository_file_entries table
+ * Migration 3 -> 4: Adds repositoryFullName, repositoryDefaultBranch to projects table & creates repository_file_entries table
  */
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `projects` ADD COLUMN `repositoryFullName` TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE `projects` ADD COLUMN `repositoryDefaultBranch` TEXT DEFAULT NULL")
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS `repository_file_entries` (
@@ -155,25 +156,36 @@ abstract class DmsDatabase : RoomDatabase() {
             }
         }
 
-        fun migrateLegacyDatabaseFileIfPresent(context: Context) {
+        fun migrateLegacyDatabaseFileIfPresent(context: Context): Boolean {
             val legacyDb = context.getDatabasePath(LEGACY_DATABASE_NAME)
             val currentDb = context.getDatabasePath(DATABASE_NAME)
 
-            if (legacyDb.exists() && !currentDb.exists()) {
-                try {
-                    legacyDb.parentFile?.mkdirs()
-                    legacyDb.renameTo(currentDb)
+            if (!legacyDb.exists() || currentDb.exists()) {
+                return false
+            }
 
-                    val legacyWal = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-wal")
-                    val currentWal = File(currentDb.parentFile, "$DATABASE_NAME-wal")
-                    if (legacyWal.exists()) legacyWal.renameTo(currentWal)
-
-                    val legacyShm = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-shm")
-                    val currentShm = File(currentDb.parentFile, "$DATABASE_NAME-shm")
-                    if (legacyShm.exists()) legacyShm.renameTo(currentShm)
-                } catch (_: Exception) {
-                    // Fallback to in-place initialization
+            return try {
+                legacyDb.parentFile?.mkdirs()
+                val mainMoved = legacyDb.renameTo(currentDb)
+                if (!mainMoved || !currentDb.exists()) {
+                    return false
                 }
+
+                val legacyWal = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-wal")
+                val currentWal = File(currentDb.parentFile, "$DATABASE_NAME-wal")
+                if (legacyWal.exists()) {
+                    legacyWal.renameTo(currentWal)
+                }
+
+                val legacyShm = File(legacyDb.parentFile, "$LEGACY_DATABASE_NAME-shm")
+                val currentShm = File(currentDb.parentFile, "$DATABASE_NAME-shm")
+                if (legacyShm.exists()) {
+                    legacyShm.renameTo(currentShm)
+                }
+
+                true
+            } catch (_: Exception) {
+                false
             }
         }
     }

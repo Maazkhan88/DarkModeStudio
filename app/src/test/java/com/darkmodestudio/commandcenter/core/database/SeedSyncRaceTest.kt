@@ -1,15 +1,11 @@
 package com.darkmodestudio.commandcenter.core.database
 
 import androidx.room.Room
-import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
-import com.darkmodestudio.commandcenter.core.model.ProjectStatus
 import com.darkmodestudio.commandcenter.core.network.GitHubConnector
-import com.darkmodestudio.commandcenter.core.network.GitHubSyncStatus
-import com.darkmodestudio.commandcenter.core.network.GitHubTelemetryResult
-import com.darkmodestudio.commandcenter.core.network.model.GitHubRepoDto
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.sync.GitHubSyncer
+import com.darkmodestudio.commandcenter.core.sync.SyncCoordinator
 import com.darkmodestudio.commandcenter.core.sync.SyncMode
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -20,6 +16,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -69,6 +66,80 @@ class SeedSyncRaceTest {
         val githubIntegration = database.integrationDao().getIntegrationById("github")
         assertNotNull(githubIntegration)
         assertEquals(IntegrationHealth.DISCONNECTED, githubIntegration!!.health)
+
+        // 4. Default structural agents created
+        val codex = database.agentDao().getAgentById("codex")
+        assertNotNull(codex)
+        assertEquals(0, codex!!.runsUsed)
+        assertEquals(500, codex.runsTotal)
+    }
+
+    @Test
+    fun initializer_preservesUserAgentTelemetry_acrossMultipleInvocationsAndSyncs() = runBlocking {
+        // First run initializes agents
+        initializer.initialize()
+
+        val codexInitial = database.agentDao().getAgentById("codex")
+        assertNotNull(codexInitial)
+
+        // Simulate agent telemetry progression during active use
+        val updatedCodex = codexInitial!!.copy(
+            runsUsed = 85,
+            messagesUsed = 2100,
+            tasksUsed = 14,
+            currentTask = "Synthesizing AST for multi-agent bridge",
+            statusText = "Analyzing Codebase • 42%",
+            usagePercentage = 0.42f
+        )
+        database.agentDao().updateAgent(updatedCodex)
+
+        // Re-run AppDataInitializer (e.g. app restart)
+        initializer.initialize()
+
+        // Verify that custom agent state was NOT reset to 0
+        val codexAfterInit = database.agentDao().getAgentById("codex")
+        assertNotNull(codexAfterInit)
+        assertEquals(85, codexAfterInit!!.runsUsed)
+        assertEquals(2100, codexAfterInit.messagesUsed)
+        assertEquals(14, codexAfterInit.tasksUsed)
+        assertEquals("Synthesizing AST for multi-agent bridge", codexAfterInit.currentTask)
+        assertEquals("Analyzing Codebase • 42%", codexAfterInit.statusText)
+
+        // Execute full sync coordinator syncAll
+        val coordinator = SyncCoordinator(database, keystoreManager)
+        coordinator.syncAll(SyncMode.FOREGROUND)
+
+        // Verify that syncAll also NEVER wipes out agent telemetry
+        val codexAfterSync = database.agentDao().getAgentById("codex")
+        assertNotNull(codexAfterSync)
+        assertEquals(85, codexAfterSync!!.runsUsed)
+        assertEquals(2100, codexAfterSync.messagesUsed)
+        assertEquals(14, codexAfterSync.tasksUsed)
+        assertEquals("Synthesizing AST for multi-agent bridge", codexAfterSync.currentTask)
+    }
+
+    @Test
+    fun initializer_preservesCustomizedAutomationRules() = runBlocking {
+        initializer.initialize()
+
+        val rule1 = database.automationDao().getRuleById("rule1")
+        assertNotNull(rule1)
+        assertTrue(rule1!!.isEnabled)
+
+        // User customizes rule1: disables it and modifies notification copy
+        val modifiedRule = rule1.copy(
+            isEnabled = false,
+            humanReadableText = "Custom User Workflow Alert: Silence CI alerts on weekends"
+        )
+        database.automationDao().updateRule(modifiedRule)
+
+        // Re-run initializer
+        initializer.initialize()
+
+        val rule1After = database.automationDao().getRuleById("rule1")
+        assertNotNull(rule1After)
+        assertFalse(rule1After!!.isEnabled)
+        assertEquals("Custom User Workflow Alert: Silence CI alerts on weekends", rule1After.humanReadableText)
     }
 
     @Test
@@ -85,6 +156,7 @@ class SeedSyncRaceTest {
                     "full_name": "Maazkhan88/LiveProductionRepo",
                     "private": false,
                     "description": "Real live project from GitHub",
+                    "default_branch": "develop",
                     "created_at": "2026-08-30T10:00:00Z",
                     "pushed_at": "2026-08-30T12:00:00Z"
                 }
@@ -117,6 +189,7 @@ class SeedSyncRaceTest {
         assertNotNull(project)
         assertEquals("LiveProductionRepo", project!!.name)
         assertEquals("Maazkhan88/LiveProductionRepo", project.repositoryFullName)
+        assertEquals("develop", project.repositoryDefaultBranch)
 
         // Step 3: Re-running initializer on subsequent app launch must NOT wipe or add fake projects
         initializer.initialize()

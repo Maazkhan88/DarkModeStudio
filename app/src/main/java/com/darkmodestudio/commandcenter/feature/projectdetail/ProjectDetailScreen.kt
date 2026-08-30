@@ -95,11 +95,15 @@ fun ProjectDetailScreen(
 
     var selectedTab by remember { mutableStateOf("Overview") }
 
-    LaunchedEffect(selectedTab, project.repositoryFullName) {
+    LaunchedEffect(selectedTab, project.repositoryFullName, project.repositoryDefaultBranch) {
         if (selectedTab == "Files" && repositoryFilesRepository != null) {
-            val targetRepo = project.repositoryFullName ?: project.name
-            if (targetRepo.isNotBlank()) {
-                repositoryFilesRepository.loadDirectory(targetRepo)
+            if (project.repositoryFullName.isNullOrBlank()) {
+                repositoryFilesRepository.setNotLinked()
+            } else {
+                repositoryFilesRepository.loadDirectory(
+                    repoFullName = project.repositoryFullName,
+                    branch = project.repositoryDefaultBranch ?: "main"
+                )
             }
         }
     }
@@ -614,6 +618,42 @@ fun ProjectDetailScreen(
                                 }
 
                                 when (val state = filesState) {
+                                    is RepositoryFilesState.NotLinked -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(DmsRadii.ShapeR12)
+                                                .background(DmsColors.Surface02)
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Folder,
+                                                contentDescription = null,
+                                                tint = DmsColors.White64,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Text(
+                                                text = "Repository not linked",
+                                                style = DmsTheme.typography.bodySmall.copy(
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = DmsColors.White
+                                                )
+                                            )
+                                            Text(
+                                                text = "This project is not linked to a GitHub repository.",
+                                                style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                                            )
+                                            onConnectGitHubClick?.let {
+                                                DmsPrimaryButton(
+                                                    text = "Link GitHub Repository",
+                                                    onClick = it,
+                                                    modifier = Modifier.height(36.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                     is RepositoryFilesState.Disconnected -> {
                                         Column(
                                             modifier = Modifier

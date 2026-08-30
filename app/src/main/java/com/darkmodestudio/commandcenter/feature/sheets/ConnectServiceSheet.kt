@@ -68,7 +68,7 @@ fun ConnectServiceSheet(
     DmsModalBottomSheet(
         onDismissRequest = onDismissRequest,
         title = "Connect Service",
-        subtitle = "Store encrypted credentials in hardware Keystore"
+        subtitle = "Store encrypted credentials using Android Keystore"
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             // Provider Selector
@@ -139,7 +139,7 @@ fun ConnectServiceSheet(
                 padding = 10.dp
             ) {
                 Text(
-                    text = "Hardware Keystore Encryption: Keys are encrypted on-device with non-exportable AES-256-GCM master keys and never transmitted to third parties.",
+                    text = "Android Keystore Encryption: Keys are encrypted on-device with AES-256-GCM master keys and never transmitted to third parties.",
                     style = DmsTheme.typography.caption.copy(
                         fontSize = 10.sp,
                         color = DmsColors.White48

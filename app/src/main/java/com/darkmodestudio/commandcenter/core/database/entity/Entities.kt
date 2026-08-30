@@ -29,7 +29,8 @@ data class ProjectEntity(
     val testingWeight: Float = 0.20f,
     val deploymentWeight: Float = 0.20f,
     val lastUpdate: String = "Just now",
-    val repositoryFullName: String? = null
+    val repositoryFullName: String? = null,
+    val repositoryDefaultBranch: String? = null
 )
 
 @Entity(
@@ -98,7 +99,10 @@ data class ProjectActivityEntity(
 
 @Entity(
     tableName = "tasks",
-    indices = [Index(value = ["projectId"]), Index(value = ["status"])]
+    indices = [
+        Index(value = ["projectId", "status"]),
+        Index(value = ["status"])
+    ]
 )
 data class TaskEntity(
     @PrimaryKey val id: String,
