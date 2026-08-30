@@ -5,9 +5,10 @@ import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationIncidentEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectActivityEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
+import com.darkmodestudio.commandcenter.core.model.ProjectStatus
 import com.darkmodestudio.commandcenter.core.network.GitHubConnector
-import com.darkmodestudio.commandcenter.core.network.LiveCloudHub
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.security.SecureProvider
 import kotlinx.coroutines.Dispatchers
@@ -22,32 +23,56 @@ class GitHubSyncer(
     override val provider: SecureProvider = SecureProvider.GITHUB
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
-        val storedToken = keystoreCredentialManager.getSecret("token_github")
+        val storedToken = keystoreCredentialManager.getSecret("token_github") ?: ""
+        val result = gitHubConnector.fetchAllTelemetry(storedToken)
 
-        val result = if (!storedToken.isNullOrBlank()) {
-            gitHubConnector.fetchAllTelemetry(storedToken)
-        } else {
-            LiveCloudHub.getLiveGitHubTelemetry()
+        if (!result.isSuccess && result.errorMessage?.contains("401") == true) {
+            return@withContext ProviderSyncResult(
+                provider = SecureProvider.GITHUB,
+                isSuccess = false,
+                message = "Invalid GitHub token"
+            )
         }
 
         val nowFormatted = "Just now"
 
-        // 1. Ingest Commits into Project Activities
+        // 1. Ingest Real Repositories as Real Projects in Room SQLite
+        if (result.repos.isNotEmpty()) {
+            val liveProjects = result.repos.map { repo ->
+                val id = repo.name.lowercase().replace(" ", "-")
+                val iconTag = repo.name.take(2).uppercase()
+                val latestCommit = result.commitsByRepo[repo.fullName]?.firstOrNull()
+                val latestMessage = latestCommit?.commit?.message?.lines()?.firstOrNull()?.take(40) ?: "Active Development"
+
+                ProjectEntity(
+                    id = id,
+                    name = repo.name,
+                    description = repo.description ?: "Repository ${repo.fullName}",
+                    iconTag = iconTag,
+                    status = ProjectStatus.ON_TRACK,
+                    isMvp = repo.name.contains("SecondMe", ignoreCase = true) || repo.name.contains("DarkModeStudio", ignoreCase = true),
+                    owner = "Maazkhan88",
+                    createdAt = repo.pushedAt?.take(10) ?: repo.updatedAt?.take(10) ?: "Aug 2026",
+                    dueDate = "Q4 2026",
+                    nextMilestone = latestMessage,
+                    manualProgressOverride = 0.65f,
+                    lastUpdate = "Live"
+                )
+            }
+            database.projectDao().insertProjects(liveProjects)
+        }
+
+        // 2. Ingest Real Commits into Project Activities
         val newActivities = mutableListOf<ProjectActivityEntity>()
         result.commitsByRepo.forEach { (repoKey, commits) ->
-            val projectId = when {
-                repoKey.contains("ghostcart", ignoreCase = true) -> "ghostcart"
-                repoKey.contains("agstudio", ignoreCase = true) -> "agstudio"
-                repoKey.contains("pioneer", ignoreCase = true) -> "pioneer"
-                else -> "secondme"
-            }
-            commits.take(4).forEach { commitDto ->
+            val repoName = repoKey.substringAfter("/").lowercase()
+            commits.take(6).forEach { commitDto ->
                 newActivities.add(
                     ProjectActivityEntity(
                         id = "gh_" + commitDto.sha.take(8),
-                        projectId = projectId,
-                        title = commitDto.commit.message.lines().firstOrNull()?.take(50) ?: "Commit",
-                        author = commitDto.commit.author?.name ?: "GitHub",
+                        projectId = repoName,
+                        title = commitDto.commit.message.lines().firstOrNull()?.take(60) ?: "Commit",
+                        author = commitDto.commit.author?.name ?: "Maazkhan88",
                         hash = commitDto.sha.take(7),
                         timestamp = "Live"
                     )
@@ -58,7 +83,7 @@ class GitHubSyncer(
             database.projectDao().insertActivities(newActivities)
         }
 
-        // 2. Compute Workflows & Health
+        // 3. Compute Real Workflows & Health
         var totalFailing = 0
         var totalPassing = 0
         result.workflowsByRepo.forEach { (_, workflows) ->
@@ -69,10 +94,10 @@ class GitHubSyncer(
         }
 
         val health = if (totalFailing > 0) IntegrationHealth.DEGRADED else IntegrationHealth.OPERATIONAL
-        val primaryMetric = if (totalFailing > 0) "$totalFailing CI Actions Failing" else "All CI Actions Passing"
-        val primaryRepoName = result.repos.firstOrNull()?.fullName ?: "darkmodestudio/core"
+        val primaryMetric = if (totalFailing > 0) "$totalFailing CI Actions Failing" else "All CI Actions Passing (${result.repos.size} Repos)"
+        val primaryRepoName = result.repos.firstOrNull()?.fullName ?: "Maazkhan88/DarkModeStudio"
 
-        // 3. Update Integration Entity
+        // 4. Update Integration Entity
         val updatedIntegration = IntegrationEntity(
             id = "github",
             name = "GitHub",
@@ -85,16 +110,16 @@ class GitHubSyncer(
         )
         database.integrationDao().insertIntegration(updatedIntegration)
 
-        // 4. Update Metrics
+        // 5. Update Metrics
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "github", label = "Primary Repo", value = primaryRepoName),
             IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = "Live (main)"),
-            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${result.pullsByRepo.values.flatten().size.coerceAtLeast(3)} review required"),
-            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "${totalPassing.coerceAtLeast(12)} passing / $totalFailing failing")
+            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "${result.pullsByRepo.values.flatten().size} open PRs"),
+            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "$totalPassing passing / $totalFailing failing")
         )
         database.integrationDao().insertMetrics(metrics)
 
-        // 5. Ingest Incident if failing CI
+        // 6. Ingest Incident if failing CI
         if (totalFailing > 0) {
             database.integrationDao().insertIncidents(
                 listOf(
@@ -113,7 +138,7 @@ class GitHubSyncer(
         ProviderSyncResult(
             provider = SecureProvider.GITHUB,
             isSuccess = true,
-            message = "Live GitHub telemetry synchronized (${result.repos.size} repos, ${result.commitsByRepo.values.flatten().size} commits)"
+            message = "Live GitHub telemetry synchronized (${result.repos.size} real repos, ${newActivities.size} real commits)"
         )
     }
 }

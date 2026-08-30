@@ -2,7 +2,6 @@ package com.darkmodestudio.commandcenter.core.network
 
 import com.darkmodestudio.commandcenter.core.network.model.GitHubCommitDto
 import com.darkmodestudio.commandcenter.core.network.model.GitHubPullDto
-import com.darkmodestudio.commandcenter.core.network.model.GitHubRateLimitResponseDto
 import com.darkmodestudio.commandcenter.core.network.model.GitHubRepoDto
 import com.darkmodestudio.commandcenter.core.network.model.GitHubWorkflowRunsResponseDto
 import kotlinx.coroutines.Dispatchers
@@ -30,17 +29,16 @@ class GitHubConnector(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
-) {
+    ) {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val eTagCache = ConcurrentHashMap<String, String>()
 
     suspend fun fetchAllTelemetry(
-        token: String,
-        targetRepos: List<Pair<String, String>> = listOf("darkmodestudio" to "core")
+        token: String
     ): GitHubTelemetryResult = withContext(Dispatchers.IO) {
         try {
-            // 1. Fetch User Repositories
-            val reposRequest = buildRequest("https://api.github.com/user/repos?per_page=15&sort=updated", token)
+            // 1. Fetch User Repositories (Up to 30 most recently pushed)
+            val reposRequest = buildRequest("https://api.github.com/user/repos?per_page=30&sort=pushed", token)
             var repos: List<GitHubRepoDto> = emptyList()
             var isNotModified = false
             var rateLimitRemaining = 5000
@@ -61,13 +59,6 @@ class GitHubConnector(
                         isSuccess = false,
                         errorMessage = "Invalid or expired GitHub Personal Access Token (401 Unauthorized)"
                     )
-                } else if (response.code == 403 && rateLimitRemaining == 0) {
-                    return@withContext GitHubTelemetryResult(
-                        isSuccess = false,
-                        rateLimitRemaining = 0,
-                        rateLimitResetAt = rateLimitReset,
-                        errorMessage = "GitHub API Rate limit exceeded. Resets at $rateLimitReset"
-                    )
                 }
             }
 
@@ -75,42 +66,39 @@ class GitHubConnector(
             val pullsMap = mutableMapOf<String, List<GitHubPullDto>>()
             val workflowsMap = mutableMapOf<String, GitHubWorkflowRunsResponseDto>()
 
-            // 2. Fetch Details for Target Repos
-            for ((owner, repo) in targetRepos) {
-                val repoKey = "$owner/$repo"
+            // 2. Fetch Details for All Returned User Repositories
+            for (repo in repos.take(10)) {
+                val fullName = repo.fullName
 
-                // Fetch Commits
+                // Fetch Real Commits
                 try {
-                    val commitsReq = buildRequest("https://api.github.com/repos/$owner/$repo/commits?per_page=5", token)
+                    val commitsReq = buildRequest("https://api.github.com/repos/$fullName/commits?per_page=10", token)
                     okHttpClient.newCall(commitsReq).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            resp.header("ETag")?.let { eTagCache["commits_$repoKey"] = it }
                             val body = resp.body?.string() ?: "[]"
-                            commitsMap[repoKey] = json.decodeFromString(body)
+                            commitsMap[fullName] = json.decodeFromString(body)
                         }
                     }
                 } catch (_: Exception) {}
 
-                // Fetch Pull Requests
+                // Fetch Real Pull Requests
                 try {
-                    val pullsReq = buildRequest("https://api.github.com/repos/$owner/$repo/pulls?state=open&per_page=10", token)
+                    val pullsReq = buildRequest("https://api.github.com/repos/$fullName/pulls?state=open&per_page=10", token)
                     okHttpClient.newCall(pullsReq).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            resp.header("ETag")?.let { eTagCache["pulls_$repoKey"] = it }
                             val body = resp.body?.string() ?: "[]"
-                            pullsMap[repoKey] = json.decodeFromString(body)
+                            pullsMap[fullName] = json.decodeFromString(body)
                         }
                     }
                 } catch (_: Exception) {}
 
-                // Fetch Workflow Runs
+                // Fetch Real Actions Workflow Runs
                 try {
-                    val workflowsReq = buildRequest("https://api.github.com/repos/$owner/$repo/actions/runs?per_page=10", token)
+                    val workflowsReq = buildRequest("https://api.github.com/repos/$fullName/actions/runs?per_page=10", token)
                     okHttpClient.newCall(workflowsReq).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            resp.header("ETag")?.let { eTagCache["workflows_$repoKey"] = it }
                             val body = resp.body?.string() ?: "{}"
-                            workflowsMap[repoKey] = json.decodeFromString(body)
+                            workflowsMap[fullName] = json.decodeFromString(body)
                         }
                     }
                 } catch (_: Exception) {}
@@ -134,17 +122,12 @@ class GitHubConnector(
         }
     }
 
-    private fun buildRequest(url: String, token: String, cacheKey: String? = null): Request {
-        val builder = Request.Builder()
+    private fun buildRequest(url: String, token: String): Request {
+        return Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $token")
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "DarkModeStudio-CommandCenter")
-
-        if (cacheKey != null && eTagCache.containsKey(cacheKey)) {
-            builder.header("If-None-Match", eTagCache[cacheKey]!!)
-        }
-
-        return builder.build()
+            .build()
     }
 }
