@@ -48,11 +48,16 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 @Composable
 fun SettingsScreen(
     settingsRepository: SettingsRepository,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onManageAutomationsClick: (() -> Unit)? = null
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val userProfile by settingsRepository.userProfile.collectAsState(initial = com.darkmodestudio.commandcenter.core.model.UserProfile())
     val automationStats by settingsRepository.automationStats.collectAsState(initial = com.darkmodestudio.commandcenter.core.model.AutomationStats())
     val biometricLock by settingsRepository.biometricLock.collectAsState(initial = true)
@@ -228,7 +233,11 @@ fun SettingsScreen(
 
                             DmsToggle(
                                 checked = biometricLock,
-                                onCheckedChange = { settingsRepository.toggleBiometricLock() }
+                                onCheckedChange = {
+                                    coroutineScope.launch {
+                                        settingsRepository.toggleBiometricLock()
+                                    }
+                                }
                             )
                         }
 
@@ -301,7 +310,11 @@ fun SettingsScreen(
 
                             DmsToggle(
                                 checked = dailyBriefing,
-                                onCheckedChange = { settingsRepository.toggleDailyBriefing() }
+                                onCheckedChange = {
+                                    coroutineScope.launch {
+                                        settingsRepository.toggleDailyBriefing()
+                                    }
+                                }
                             )
                         }
                     }
@@ -334,7 +347,7 @@ fun SettingsScreen(
 
                         DmsSecondaryOutlineButton(
                             text = "Manage Automation Rules",
-                            onClick = { /* Manage rules */ },
+                            onClick = { onManageAutomationsClick?.invoke() },
                             modifier = Modifier.fillMaxWidth(),
                             height = 38.dp
                         )

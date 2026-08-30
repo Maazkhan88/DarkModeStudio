@@ -16,14 +16,28 @@ import com.darkmodestudio.commandcenter.core.data.repository.NotificationReposit
 import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
 import com.darkmodestudio.commandcenter.core.data.repository.SettingsRepository
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
+import com.darkmodestudio.commandcenter.core.database.DmsDatabase
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DarkModeStudioTheme
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
+import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
+import com.darkmodestudio.commandcenter.core.sync.SyncCoordinator
 import com.darkmodestudio.commandcenter.navigation.DmsNavHost
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val database = DmsDatabase.getInstance(this)
+        val keystoreManager = KeystoreCredentialManager()
+        val syncCoordinator = SyncCoordinator(database, keystoreManager)
+
+        val projectRepository = ProjectRepository(database.projectDao())
+        val taskRepository = TaskRepository(database.taskDao())
+        val agentRepository = AgentRepository(database.agentDao())
+        val healthRepository = HealthRepository(database.integrationDao())
+        val notificationRepository = NotificationRepository(database.notificationDao(), database.reminderDao(), database.settingsDao())
+        val settingsRepository = SettingsRepository(database.settingsDao(), database.automationDao())
 
         setContent {
             DarkModeStudioTheme {
@@ -35,13 +49,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
 
-                    val projectRepository = remember { ProjectRepository() }
-                    val taskRepository = remember { TaskRepository() }
-                    val agentRepository = remember { AgentRepository() }
-                    val healthRepository = remember { HealthRepository() }
-                    val notificationRepository = remember { NotificationRepository() }
-                    val settingsRepository = remember { SettingsRepository() }
-
                     DmsNavHost(
                         navController = navController,
                         projectRepository = projectRepository,
@@ -49,7 +56,9 @@ class MainActivity : ComponentActivity() {
                         agentRepository = agentRepository,
                         healthRepository = healthRepository,
                         notificationRepository = notificationRepository,
-                        settingsRepository = settingsRepository
+                        settingsRepository = settingsRepository,
+                        keystoreCredentialManager = keystoreManager,
+                        syncCoordinator = syncCoordinator
                     )
                 }
             }

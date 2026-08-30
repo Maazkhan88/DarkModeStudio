@@ -1,14 +1,40 @@
 package com.darkmodestudio.commandcenter.core.data.repository
 
+import com.darkmodestudio.commandcenter.core.database.dao.IntegrationDao
+import com.darkmodestudio.commandcenter.core.database.dao.IntegrationWithDetails
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.model.IntegrationItem
 import com.darkmodestudio.commandcenter.core.model.IntegrationMetric
 import com.darkmodestudio.commandcenter.core.model.PlatformHealthSummary
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
-class HealthRepository {
+class HealthRepository(private val integrationDao: IntegrationDao? = null) {
+
+    val integrations: Flow<List<IntegrationItem>> = integrationDao?.getIntegrationsWithDetailsFlow()?.map { list ->
+        list.map { it.toDomain() }
+    } ?: flowOf(defaultIntegrations)
+
+    val summaryFlow: Flow<PlatformHealthSummary> = integrations.map { list ->
+        val connected = list.count { it.isConnected }
+        val degraded = list.count { it.health == IntegrationHealth.DEGRADED }
+        val disconnected = list.count { it.health == IntegrationHealth.DISCONNECTED || !it.isConnected }
+        val alerts = list.sumOf { it.activeAlerts.size }
+
+        val score = if (list.isNotEmpty()) {
+            val healthyCount = list.count { it.health == IntegrationHealth.OPERATIONAL && it.isConnected }
+            healthyCount.toFloat() / list.size
+        } else 1.0f
+
+        PlatformHealthSummary(
+            connectedCount = connected,
+            degradedCount = degraded,
+            disconnectedCount = disconnected,
+            alertsCount = alerts,
+            healthScore = score
+        )
+    }
 
     val summary = PlatformHealthSummary(
         connectedCount = 7,
@@ -18,15 +44,15 @@ class HealthRepository {
         healthScore = 0.96f
     )
 
-    private val _integrations = MutableStateFlow(
-        listOf(
+    companion object {
+        val defaultIntegrations = listOf(
             IntegrationItem(
                 id = "github",
                 name = "GitHub",
                 category = "Code & CI/CD",
                 isConnected = true,
                 health = IntegrationHealth.OPERATIONAL,
-                lastSync = "1m ago",
+                lastSync = "Just now",
                 primaryMetric = "All CI Actions Passing",
                 metrics = listOf(
                     IntegrationMetric("Primary Repo", "darkmodestudio/core"),
@@ -41,7 +67,7 @@ class HealthRepository {
                 category = "Edge & Infrastructure",
                 isConnected = true,
                 health = IntegrationHealth.OPERATIONAL,
-                lastSync = "30s ago",
+                lastSync = "1m ago",
                 primaryMetric = "1.4M req • 0.02% err",
                 metrics = listOf(
                     IntegrationMetric("Daily Requests", "1,420,890"),
@@ -56,7 +82,7 @@ class HealthRepository {
                 category = "Mobile & Crashlytics",
                 isConnected = true,
                 health = IntegrationHealth.OPERATIONAL,
-                lastSync = "3m ago",
+                lastSync = "2m ago",
                 primaryMetric = "99.94% Crash-Free",
                 metrics = listOf(
                     IntegrationMetric("Latest Build", "Release #28"),
@@ -71,7 +97,7 @@ class HealthRepository {
                 category = "Distribution",
                 isConnected = true,
                 health = IntegrationHealth.OPERATIONAL,
-                lastSync = "15m ago",
+                lastSync = "12m ago",
                 primaryMetric = "Internal Track v1.0.0-rc2",
                 metrics = listOf(
                     IntegrationMetric("Active Track", "Internal Testing"),
@@ -116,7 +142,7 @@ class HealthRepository {
                 category = "Frontend & Edge",
                 isConnected = true,
                 health = IntegrationHealth.OPERATIONAL,
-                lastSync = "2m ago",
+                lastSync = "5m ago",
                 primaryMetric = "Deploy: secondme-web",
                 metrics = listOf(
                     IntegrationMetric("Production URL", "secondme-web.app"),
@@ -126,7 +152,19 @@ class HealthRepository {
                 )
             )
         )
-    )
+    }
+}
 
-    val integrations: Flow<List<IntegrationItem>> = _integrations.asStateFlow()
+private fun IntegrationWithDetails.toDomain(): IntegrationItem {
+    return IntegrationItem(
+        id = integration.id,
+        name = integration.name,
+        category = integration.category,
+        isConnected = integration.isConnected,
+        health = integration.health,
+        lastSync = integration.lastSync,
+        primaryMetric = integration.primaryMetric,
+        metrics = metrics.map { IntegrationMetric(it.label, it.value) },
+        activeAlerts = incidents.filter { !it.isResolved }.map { it.title }
+    )
 }

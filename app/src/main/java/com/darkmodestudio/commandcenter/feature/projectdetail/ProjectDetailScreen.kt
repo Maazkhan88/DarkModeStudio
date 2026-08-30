@@ -49,6 +49,8 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsRadii
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsSpacing
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 
+import androidx.compose.runtime.collectAsState
+
 @Composable
 fun ProjectDetailScreen(
     projectId: String,
@@ -57,9 +59,9 @@ fun ProjectDetailScreen(
     onNotificationClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
-    val project = remember(projectId) {
-        projectRepository.getProject(projectId) ?: projectRepository.getProject("secondme")!!
-    }
+    val projectFlow by projectRepository.getProjectFlow(projectId).collectAsState(initial = null)
+    val projectsList by projectRepository.projects.collectAsState(initial = emptyList())
+    val project = projectFlow ?: projectsList.find { it.id == projectId } ?: projectsList.firstOrNull() ?: return
 
     var selectedTab by remember { mutableStateOf("Overview") }
 

@@ -52,12 +52,17 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 import com.darkmodestudio.commandcenter.core.model.Task
 import com.darkmodestudio.commandcenter.core.model.TaskStatus
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 @Composable
 fun ExecutionScreen(
     taskRepository: TaskRepository,
     onNotificationClick: () -> Unit,
-    onAvatarClick: () -> Unit
+    onAvatarClick: () -> Unit,
+    onAddTaskClick: (() -> Unit)? = null
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val tasks by taskRepository.tasks.collectAsState(initial = emptyList())
     var selectedFilter by remember { mutableStateOf("All Tasks") }
 
@@ -202,7 +207,11 @@ fun ExecutionScreen(
                 items(filteredTasks) { task ->
                     TaskFeedCard(
                         task = task,
-                        onToggle = { taskRepository.toggleTask(task.id) }
+                        onToggle = {
+                            coroutineScope.launch {
+                                taskRepository.toggleTask(task.id, task.status)
+                            }
+                        }
                     )
                 }
 
@@ -220,7 +229,7 @@ fun ExecutionScreen(
                 .size(46.dp)
                 .clip(CircleShape)
                 .background(DmsColors.White)
-                .clickable { /* Create new task */ },
+                .clickable { onAddTaskClick?.invoke() },
             contentAlignment = Alignment.Center
         ) {
             Icon(

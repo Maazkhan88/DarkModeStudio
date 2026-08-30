@@ -1,19 +1,116 @@
 package com.darkmodestudio.commandcenter.core.data.repository
 
+import com.darkmodestudio.commandcenter.core.database.dao.ProjectDao
+import com.darkmodestudio.commandcenter.core.database.dao.ProjectWithDetails
+import com.darkmodestudio.commandcenter.core.database.entity.ProjectBlockerEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProjectMilestoneEntity
 import com.darkmodestudio.commandcenter.core.designsystem.component.MilestoneItem
 import com.darkmodestudio.commandcenter.core.model.PhaseDistribution
 import com.darkmodestudio.commandcenter.core.model.Project
 import com.darkmodestudio.commandcenter.core.model.ProjectActivity
 import com.darkmodestudio.commandcenter.core.model.ProjectBlocker
 import com.darkmodestudio.commandcenter.core.model.ProjectStatus
+import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
-class ProjectRepository {
+class ProjectRepository(private val projectDao: ProjectDao? = null) {
 
-    private val _projects = MutableStateFlow(
-        listOf(
+    val projects: Flow<List<Project>> = projectDao?.getProjectsWithDetailsFlow()?.map { list ->
+        list.map { it.toDomain() }
+    } ?: flowOf(defaultProjects)
+
+    fun getProjectFlow(id: String): Flow<Project?> {
+        return projectDao?.getProjectWithDetailsFlow(id)?.map { it?.toDomain() }
+            ?: flowOf(defaultProjects.find { it.id == id } ?: defaultProjects.first())
+    }
+
+    fun getProject(id: String): Project? {
+        return defaultProjects.find { it.id == id } ?: defaultProjects.firstOrNull()
+    }
+
+    suspend fun createProject(
+        name: String,
+        description: String,
+        iconTag: String,
+        status: ProjectStatus,
+        dueDate: String,
+        nextMilestone: String,
+        isMvp: Boolean = false,
+        manualOverride: Float? = null
+    ): String {
+        val id = name.lowercase().replace(" ", "").replace("-", "") + "_" + System.currentTimeMillis().toString().takeLast(4)
+        val entity = ProjectEntity(
+            id = id,
+            name = name,
+            description = description,
+            iconTag = if (iconTag.isNotBlank()) iconTag.uppercase().take(2) else name.take(2).uppercase(),
+            status = status,
+            isMvp = isMvp,
+            owner = "Founder",
+            createdAt = "Today",
+            dueDate = dueDate,
+            nextMilestone = nextMilestone,
+            manualProgressOverride = manualOverride,
+            lastUpdate = "Just now"
+        )
+        projectDao?.insertProject(entity)
+        return id
+    }
+
+    suspend fun updateProject(project: Project) {
+        val entity = ProjectEntity(
+            id = project.id,
+            name = project.name,
+            description = project.description,
+            iconTag = project.iconTag,
+            status = project.status,
+            isMvp = project.isMvp,
+            owner = project.owner,
+            createdAt = project.createdAt,
+            dueDate = project.dueDate,
+            nextMilestone = project.nextMilestone,
+            manualProgressOverride = project.progress,
+            planningWeight = project.phases.planning,
+            developmentWeight = project.phases.development,
+            testingWeight = project.phases.testing,
+            deploymentWeight = project.phases.deployment,
+            lastUpdate = "Just now"
+        )
+        projectDao?.updateProject(entity)
+    }
+
+    suspend fun deleteProject(projectId: String) {
+        projectDao?.deleteProject(projectId)
+    }
+
+    suspend fun addMilestone(projectId: String, title: String, date: String? = null) {
+        val milestone = ProjectMilestoneEntity(
+            id = "m_" + System.currentTimeMillis(),
+            projectId = projectId,
+            title = title,
+            isCompleted = false,
+            isActive = true,
+            date = date
+        )
+        projectDao?.insertMilestones(listOf(milestone))
+    }
+
+    suspend fun addBlocker(projectId: String, description: String, severity: String = "High") {
+        val blocker = ProjectBlockerEntity(
+            id = "b_" + System.currentTimeMillis(),
+            projectId = projectId,
+            description = description,
+            severity = severity,
+            duration = "Just now"
+        )
+        projectDao?.insertBlockers(listOf(blocker))
+    }
+
+    companion object {
+        val defaultProjects = listOf(
             Project(
                 id = "secondme",
                 name = "SecondMe",
@@ -27,52 +124,24 @@ class ProjectRepository {
                 nextMilestone = "User Memory Sync",
                 isMvp = true,
                 lastUpdate = "12m ago",
-                phases = PhaseDistribution(
-                    planning = 0.15f,
-                    development = 0.45f,
-                    testing = 0.20f,
-                    deployment = 0.20f
-                ),
+                phases = PhaseDistribution(0.15f, 0.45f, 0.20f, 0.20f),
                 milestones = listOf(
-                    MilestoneItem("Architecture", isCompleted = true, date = "Aug 10"),
-                    MilestoneItem("Memory Engine", isCompleted = true, date = "Aug 22"),
-                    MilestoneItem("Sync Layer", isActive = true, date = "Sep 05"),
-                    MilestoneItem("Staging v1.0", isCompleted = false, date = "Sep 20")
+                    MilestoneItem("Architecture", isCompleted = true, isActive = false, date = "Aug 10"),
+                    MilestoneItem("Memory Engine", isCompleted = true, isActive = false, date = "Aug 22"),
+                    MilestoneItem("Sync Layer", isCompleted = false, isActive = true, date = "Sep 05"),
+                    MilestoneItem("Staging v1.0", isCompleted = false, isActive = false, date = "Sep 20")
                 ),
                 totalTasks = 12,
                 doneTasks = 6,
                 pendingTasks = 6,
                 assignedAgents = listOf("Codex", "Claude", "Antigravity"),
                 blockers = listOf(
-                    ProjectBlocker(
-                        id = "b1",
-                        description = "Blocked on Cloudflare Workers AI rate-limit tier elevation",
-                        severity = "High",
-                        duration = "6 hours"
-                    )
+                    ProjectBlocker("b1", "Blocked on Cloudflare Workers AI rate-limit tier elevation", "High", "6 hours")
                 ),
                 activities = listOf(
-                    ProjectActivity(
-                        id = "a1",
-                        title = "feat: add user memory sync",
-                        author = "Codex",
-                        hash = "a1b2c3d",
-                        timestamp = "18m ago"
-                    ),
-                    ProjectActivity(
-                        id = "a2",
-                        title = "Deploy: staging v0.4.2",
-                        author = "Claude",
-                        hash = "deployed",
-                        timestamp = "1h ago"
-                    ),
-                    ProjectActivity(
-                        id = "a3",
-                        title = "fix: resolve auth edge case",
-                        author = "Antigravity",
-                        hash = "d4e5f6a",
-                        timestamp = "3h ago"
-                    )
+                    ProjectActivity("a1", "feat: add user memory sync", "Codex", "a1b2c3d", "18m ago"),
+                    ProjectActivity("a2", "Deploy: staging v0.4.2", "Claude", "deployed", "1h ago"),
+                    ProjectActivity("a3", "fix: resolve auth edge case", "Antigravity", "d4e5f6a", "3h ago")
                 )
             ),
             Project(
@@ -87,17 +156,7 @@ class ProjectRepository {
                 dueDate = "Sep 15, 2026",
                 nextMilestone = "Production Load Test",
                 isMvp = false,
-                lastUpdate = "4m ago",
-                totalTasks = 14,
-                doneTasks = 11,
-                pendingTasks = 3,
-                assignedAgents = listOf("Codex", "Claude"),
-                milestones = listOf(
-                    MilestoneItem("Core Engine", isCompleted = true),
-                    MilestoneItem("Cart API", isCompleted = true),
-                    MilestoneItem("Load Test", isActive = true),
-                    MilestoneItem("Release", isCompleted = false)
-                )
+                lastUpdate = "4m ago"
             ),
             Project(
                 id = "proptree",
@@ -111,11 +170,7 @@ class ProjectRepository {
                 dueDate = "Nov 10, 2026",
                 nextMilestone = "Data Schema Ingestion",
                 isMvp = false,
-                lastUpdate = "2h ago",
-                totalTasks = 12,
-                doneTasks = 4,
-                pendingTasks = 8,
-                assignedAgents = listOf("Claude")
+                lastUpdate = "2h ago"
             ),
             Project(
                 id = "agstudio",
@@ -129,11 +184,7 @@ class ProjectRepository {
                 dueDate = "Sep 05, 2026",
                 nextMilestone = "Release v2.0",
                 isMvp = false,
-                lastUpdate = "1m ago",
-                totalTasks = 21,
-                doneTasks = 19,
-                pendingTasks = 2,
-                assignedAgents = listOf("Antigravity", "Codex")
+                lastUpdate = "1m ago"
             ),
             Project(
                 id = "pioneer",
@@ -147,26 +198,74 @@ class ProjectRepository {
                 dueDate = "Dec 01, 2026",
                 nextMilestone = "Core DSP Pipeline",
                 isMvp = false,
-                lastUpdate = "5h ago",
-                totalTasks = 15,
-                doneTasks = 2,
-                pendingTasks = 13,
-                assignedAgents = listOf("Codex"),
-                blockers = listOf(
-                    ProjectBlocker(
-                        id = "b2",
-                        description = "Native C++ bridge crash on Android 15 ARM64",
-                        severity = "High",
-                        duration = "2 days"
-                    )
-                )
+                lastUpdate = "5h ago"
             )
         )
-    )
-
-    val projects: Flow<List<Project>> = _projects.asStateFlow()
-
-    fun getProject(id: String): Project? {
-        return _projects.value.find { it.id == id } ?: _projects.value.firstOrNull()
     }
+}
+
+private fun ProjectWithDetails.toDomain(): Project {
+    val totalTaskCount = tasks.size.coerceAtLeast(1)
+    val doneCount = tasks.count { it.status == TaskStatus.DONE }
+    val pendingCount = tasks.count { it.status != TaskStatus.DONE }
+
+    val calculated = if (project.manualProgressOverride != null) {
+        project.manualProgressOverride
+    } else {
+        val milestoneProgress = if (milestones.isNotEmpty()) {
+            milestones.count { it.isCompleted }.toFloat() / milestones.size
+        } else 0f
+        val taskProgress = doneCount.toFloat() / totalTaskCount
+        ((milestoneProgress * 0.5f) + (taskProgress * 0.5f)).coerceIn(0f, 1f)
+    }
+
+    return Project(
+        id = project.id,
+        name = project.name,
+        description = project.description,
+        iconTag = project.iconTag,
+        status = project.status,
+        progress = calculated,
+        owner = project.owner,
+        createdAt = project.createdAt,
+        dueDate = project.dueDate,
+        nextMilestone = project.nextMilestone,
+        isMvp = project.isMvp,
+        lastUpdate = project.lastUpdate,
+        phases = PhaseDistribution(
+            planning = project.planningWeight,
+            development = project.developmentWeight,
+            testing = project.testingWeight,
+            deployment = project.deploymentWeight
+        ),
+        milestones = milestones.map {
+            MilestoneItem(
+                title = it.title,
+                isCompleted = it.isCompleted,
+                isActive = it.isActive,
+                date = it.date
+            )
+        },
+        totalTasks = if (tasks.isNotEmpty()) tasks.size else 12,
+        doneTasks = if (tasks.isNotEmpty()) doneCount else 6,
+        pendingTasks = if (tasks.isNotEmpty()) pendingCount else 6,
+        assignedAgents = listOf("Codex", "Claude", "Antigravity"),
+        blockers = blockers.map {
+            ProjectBlocker(
+                id = it.id,
+                description = it.description,
+                severity = it.severity,
+                duration = it.duration
+            )
+        },
+        activities = activities.map {
+            ProjectActivity(
+                id = it.id,
+                title = it.title,
+                author = it.author,
+                hash = it.hash,
+                timestamp = it.timestamp
+            )
+        }
+    )
 }

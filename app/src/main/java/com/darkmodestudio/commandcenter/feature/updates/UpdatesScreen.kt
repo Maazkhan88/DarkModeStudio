@@ -51,11 +51,15 @@ import com.darkmodestudio.commandcenter.core.model.NotificationType
 import com.darkmodestudio.commandcenter.core.model.ReminderItem
 import com.darkmodestudio.commandcenter.core.model.UpdateNotification
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 @Composable
 fun UpdatesScreen(
     notificationRepository: NotificationRepository,
     onAvatarClick: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val notifications by notificationRepository.notifications.collectAsState(initial = emptyList())
     val reminders by notificationRepository.reminders.collectAsState(initial = emptyList())
     val toggleStates by notificationRepository.toggleStates.collectAsState(initial = com.darkmodestudio.commandcenter.core.model.NotificationToggleState())
@@ -150,7 +154,11 @@ fun UpdatesScreen(
             items(reminders) { reminder ->
                 ReminderRowCard(
                     reminder = reminder,
-                    onToggle = { notificationRepository.toggleReminder(reminder.id) }
+                    onToggle = {
+                        coroutineScope.launch {
+                            notificationRepository.toggleReminder(reminder.id, reminder.isEnabled)
+                        }
+                    }
                 )
             }
 
@@ -176,7 +184,9 @@ fun UpdatesScreen(
                             subtitle = "Standups, KPI reviews, and focus timers",
                             checked = toggleStates.pushReminders,
                             onCheckedChange = { checked ->
-                                notificationRepository.updateToggle { it.copy(pushReminders = checked) }
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(pushReminders = checked) }
+                                }
                             }
                         )
                         Divider()
@@ -185,7 +195,9 @@ fun UpdatesScreen(
                             subtitle = "GitHub Actions, CI completions, and Play releases",
                             checked = toggleStates.buildAlerts,
                             onCheckedChange = { checked ->
-                                notificationRepository.updateToggle { it.copy(buildAlerts = checked) }
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(buildAlerts = checked) }
+                                }
                             }
                         )
                         Divider()
@@ -194,7 +206,9 @@ fun UpdatesScreen(
                             subtitle = "Upcoming task and milestone due date warnings",
                             checked = toggleStates.taskDeadlines,
                             onCheckedChange = { checked ->
-                                notificationRepository.updateToggle { it.copy(taskDeadlines = checked) }
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(taskDeadlines = checked) }
+                                }
                             }
                         )
                         Divider()
@@ -203,7 +217,9 @@ fun UpdatesScreen(
                             subtitle = "Quota alerts when quota consumption exceeds 80%",
                             checked = toggleStates.agentLimitWarnings,
                             onCheckedChange = { checked ->
-                                notificationRepository.updateToggle { it.copy(agentLimitWarnings = checked) }
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(agentLimitWarnings = checked) }
+                                }
                             }
                         )
                         Divider()
@@ -212,7 +228,9 @@ fun UpdatesScreen(
                             subtitle = "Degraded database or edge worker latency spikes",
                             checked = toggleStates.platformIncidents,
                             onCheckedChange = { checked ->
-                                notificationRepository.updateToggle { it.copy(platformIncidents = checked) }
+                                coroutineScope.launch {
+                                    notificationRepository.updateToggle { it.copy(platformIncidents = checked) }
+                                }
                             }
                         )
                     }

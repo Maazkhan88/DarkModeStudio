@@ -1,15 +1,19 @@
 package com.darkmodestudio.commandcenter.navigation
 
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
@@ -26,6 +30,8 @@ import com.darkmodestudio.commandcenter.core.data.repository.SettingsRepository
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsBottomNavigation
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
+import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
+import com.darkmodestudio.commandcenter.core.sync.SyncCoordinator
 import com.darkmodestudio.commandcenter.feature.agents.AgentsScreen
 import com.darkmodestudio.commandcenter.feature.connectstack.ConnectStackScreen
 import com.darkmodestudio.commandcenter.feature.execution.ExecutionScreen
@@ -34,7 +40,15 @@ import com.darkmodestudio.commandcenter.feature.home.HomeScreen
 import com.darkmodestudio.commandcenter.feature.projectdetail.ProjectDetailScreen
 import com.darkmodestudio.commandcenter.feature.projects.ProjectsScreen
 import com.darkmodestudio.commandcenter.feature.settings.SettingsScreen
+import com.darkmodestudio.commandcenter.feature.sheets.ActionType
+import com.darkmodestudio.commandcenter.feature.sheets.ConnectServiceSheet
+import com.darkmodestudio.commandcenter.feature.sheets.CreateAutomationSheet
+import com.darkmodestudio.commandcenter.feature.sheets.CreateProjectSheet
+import com.darkmodestudio.commandcenter.feature.sheets.CreateReminderSheet
+import com.darkmodestudio.commandcenter.feature.sheets.CreateTaskSheet
+import com.darkmodestudio.commandcenter.feature.sheets.GlobalActionSheet
 import com.darkmodestudio.commandcenter.feature.updates.UpdatesScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun DmsNavHost(
@@ -45,10 +59,21 @@ fun DmsNavHost(
     healthRepository: HealthRepository,
     notificationRepository: NotificationRepository,
     settingsRepository: SettingsRepository,
+    keystoreCredentialManager: KeystoreCredentialManager,
+    syncCoordinator: SyncCoordinator,
     modifier: Modifier = Modifier
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Home.route
+
+    // Sheet visibility states
+    var showGlobalActionSheet by remember { mutableStateOf(false) }
+    var showCreateTaskSheet by remember { mutableStateOf(false) }
+    var showCreateProjectSheet by remember { mutableStateOf(false) }
+    var showCreateReminderSheet by remember { mutableStateOf(false) }
+    var showConnectServiceSheet by remember { mutableStateOf(false) }
+    var showCreateAutomationSheet by remember { mutableStateOf(false) }
 
     val showBottomBar = currentRoute in listOf(
         Screen.Home.route,
@@ -199,9 +224,82 @@ fun DmsNavHost(
                     }
                 },
                 onCreateClick = {
-                    navController.navigate(Screen.ConnectStack.route)
+                    showGlobalActionSheet = true
                 },
                 modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
+
+        // Global Action Sheet (Screen context aware)
+        if (showGlobalActionSheet) {
+            GlobalActionSheet(
+                currentRoute = currentRoute,
+                onDismissRequest = { showGlobalActionSheet = false },
+                onSelectAction = { action ->
+                    when (action) {
+                        ActionType.NEW_TASK -> showCreateTaskSheet = true
+                        ActionType.NEW_PROJECT -> showCreateProjectSheet = true
+                        ActionType.NEW_REMINDER -> showCreateReminderSheet = true
+                        ActionType.CONNECT_SERVICE -> showConnectServiceSheet = true
+                        ActionType.NEW_AUTOMATION -> showCreateAutomationSheet = true
+                    }
+                }
+            )
+        }
+
+        // Modal Sheets for CRUD
+        if (showCreateTaskSheet) {
+            CreateTaskSheet(
+                onDismissRequest = { showCreateTaskSheet = false },
+                onSubmit = { title, desc, projId, projName, priority, agent, dueTime ->
+                    coroutineScope.launch {
+                        taskRepository.createTask(title, desc, projId, projName, priority, agent, dueTime)
+                    }
+                }
+            )
+        }
+
+        if (showCreateProjectSheet) {
+            CreateProjectSheet(
+                onDismissRequest = { showCreateProjectSheet = false },
+                onSubmit = { name, desc, icon, status, due, milestone, isMvp ->
+                    coroutineScope.launch {
+                        projectRepository.createProject(name, desc, icon, status, due, milestone, isMvp)
+                    }
+                }
+            )
+        }
+
+        if (showCreateReminderSheet) {
+            CreateReminderSheet(
+                onDismissRequest = { showCreateReminderSheet = false },
+                onSubmit = { title, dueText ->
+                    coroutineScope.launch {
+                        notificationRepository.createReminder(title, dueText)
+                    }
+                }
+            )
+        }
+
+        if (showConnectServiceSheet) {
+            ConnectServiceSheet(
+                onDismissRequest = { showConnectServiceSheet = false },
+                onSubmit = { provider, token, alias ->
+                    coroutineScope.launch {
+                        keystoreCredentialManager.encrypt(token)
+                    }
+                }
+            )
+        }
+
+        if (showCreateAutomationSheet) {
+            CreateAutomationSheet(
+                onDismissRequest = { showCreateAutomationSheet = false },
+                onSubmit = { name, trigger, action, humanText ->
+                    coroutineScope.launch {
+                        settingsRepository.createAutomationRule(name, trigger, null, null, action, humanText)
+                    }
+                }
             )
         }
     }

@@ -1,82 +1,159 @@
 package com.darkmodestudio.commandcenter.core.data.repository
 
+import com.darkmodestudio.commandcenter.core.database.dao.NotificationDao
+import com.darkmodestudio.commandcenter.core.database.dao.ReminderDao
+import com.darkmodestudio.commandcenter.core.database.dao.SettingsDao
+import com.darkmodestudio.commandcenter.core.database.entity.AppSettingsEntity
+import com.darkmodestudio.commandcenter.core.database.entity.NotificationEntity
+import com.darkmodestudio.commandcenter.core.database.entity.NotificationState
+import com.darkmodestudio.commandcenter.core.database.entity.ReminderEntity
 import com.darkmodestudio.commandcenter.core.model.NotificationToggleState
 import com.darkmodestudio.commandcenter.core.model.NotificationType
 import com.darkmodestudio.commandcenter.core.model.ReminderItem
 import com.darkmodestudio.commandcenter.core.model.UpdateNotification
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
-class NotificationRepository {
+class NotificationRepository(
+    private val notificationDao: NotificationDao? = null,
+    private val reminderDao: ReminderDao? = null,
+    private val settingsDao: SettingsDao? = null
+) {
 
-    private val _notifications = MutableStateFlow(
-        listOf(
-            UpdateNotification(
-                id = "n1",
-                title = "Standup reminder",
-                description = "Daily standup with team in 19 minutes",
-                timeAgo = "19m",
-                type = NotificationType.REMINDER,
-                isRead = false
-            ),
-            UpdateNotification(
-                id = "n2",
-                title = "GhostCart build #142 completed",
-                description = "Production build deployed successfully to edge clusters",
-                timeAgo = "42m",
-                type = NotificationType.BUILD_ALERT,
-                isRead = false
-            ),
-            UpdateNotification(
-                id = "n3",
-                title = "Task deadline approaching",
-                description = "“Payment flow polish” due in 3 hours",
-                timeAgo = "1h",
-                type = NotificationType.TASK_DEADLINE,
-                isRead = true
-            ),
-            UpdateNotification(
-                id = "n4",
-                title = "Claude usage limit at 82%",
-                description = "You're nearing your monthly allocation ceiling",
-                timeAgo = "3h",
-                type = NotificationType.AGENT_LIMIT,
-                isRead = true
-            ),
-            UpdateNotification(
-                id = "n5",
-                title = "Cloudflare incident resolved",
-                description = "Performance restored across all North America regions",
-                timeAgo = "5h",
-                type = NotificationType.INCIDENT,
-                isRead = true
+    val notifications: Flow<List<UpdateNotification>> = notificationDao?.getNotificationsFlow()?.map { list ->
+        list.map { it.toDomain() }
+    } ?: flowOf(defaultNotifications)
+
+    val reminders: Flow<List<ReminderItem>> = reminderDao?.getRemindersFlow()?.map { list ->
+        list.map { it.toDomain() }
+    } ?: flowOf(defaultReminders)
+
+    val toggleStates: Flow<NotificationToggleState> = settingsDao?.getSettingsFlow()?.map { settings ->
+        if (settings != null) {
+            NotificationToggleState(
+                pushReminders = settings.pushReminders,
+                buildAlerts = settings.buildAlerts,
+                taskDeadlines = settings.taskDeadlines,
+                agentLimitWarnings = settings.agentLimitWarnings,
+                platformIncidents = settings.platformIncidents,
+                dailyBriefing = settings.dailyBriefing
+            )
+        } else {
+            NotificationToggleState()
+        }
+    } ?: flowOf(NotificationToggleState())
+
+    suspend fun createReminder(title: String, dueText: String): String {
+        val id = "r_" + System.currentTimeMillis()
+        val entity = ReminderEntity(
+            id = id,
+            title = title,
+            dueText = dueText,
+            isEnabled = true
+        )
+        reminderDao?.insertReminder(entity)
+        return id
+    }
+
+    suspend fun toggleReminder(id: String, currentEnabled: Boolean) {
+        reminderDao?.toggleReminder(id, !currentEnabled)
+    }
+
+    suspend fun deleteReminder(id: String) {
+        reminderDao?.deleteReminder(id)
+    }
+
+    suspend fun createNotification(
+        title: String,
+        description: String,
+        type: NotificationType,
+        linkedType: String? = null,
+        linkedId: String? = null
+    ): String {
+        val id = "notif_" + System.currentTimeMillis()
+        val entity = NotificationEntity(
+            id = id,
+            title = title,
+            description = description,
+            timeAgo = "Just now",
+            type = type,
+            state = NotificationState.UNREAD,
+            linkedType = linkedType,
+            linkedId = linkedId
+        )
+        notificationDao?.insertNotification(entity)
+        return id
+    }
+
+    suspend fun markAsRead(id: String) {
+        notificationDao?.markAsRead(id)
+    }
+
+    suspend fun markAllAsRead() {
+        notificationDao?.markAllAsRead()
+    }
+
+    suspend fun archiveNotification(id: String) {
+        notificationDao?.archiveNotification(id)
+    }
+
+    suspend fun updateToggle(update: (NotificationToggleState) -> NotificationToggleState) {
+        val current = settingsDao?.getSettings() ?: AppSettingsEntity()
+        val currentToggle = NotificationToggleState(
+            pushReminders = current.pushReminders,
+            buildAlerts = current.buildAlerts,
+            taskDeadlines = current.taskDeadlines,
+            agentLimitWarnings = current.agentLimitWarnings,
+            platformIncidents = current.platformIncidents,
+            dailyBriefing = current.dailyBriefing
+        )
+        val newToggle = update(currentToggle)
+        settingsDao?.insertOrUpdate(
+            current.copy(
+                pushReminders = newToggle.pushReminders,
+                buildAlerts = newToggle.buildAlerts,
+                taskDeadlines = newToggle.taskDeadlines,
+                agentLimitWarnings = newToggle.agentLimitWarnings,
+                platformIncidents = newToggle.platformIncidents,
+                dailyBriefing = newToggle.dailyBriefing
             )
         )
-    )
+    }
 
-    private val _reminders = MutableStateFlow(
-        listOf(
-            ReminderItem(id = "r1", title = "Daily Standup", dueText = "09:30 AM", isEnabled = true),
-            ReminderItem(id = "r2", title = "Review GhostCart KPIs", dueText = "02:00 PM", isEnabled = true),
-            ReminderItem(id = "r3", title = "Weekly Architecture Planning", dueText = "05:00 PM", isEnabled = true)
+    companion object {
+        val defaultNotifications = listOf(
+            UpdateNotification("n1", "Standup reminder", "Daily standup with team in 19 minutes", "19m", NotificationType.REMINDER, isRead = false),
+            UpdateNotification("n2", "GhostCart build #142 completed", "Production build deployed successfully to edge clusters", "42m", NotificationType.BUILD_ALERT, isRead = false),
+            UpdateNotification("n3", "Task deadline approaching", "“Payment flow polish” due in 3 hours", "1h", NotificationType.TASK_DEADLINE, isRead = true),
+            UpdateNotification("n4", "Claude usage limit at 82%", "You're nearing your monthly allocation ceiling", "3h", NotificationType.AGENT_LIMIT, isRead = true),
+            UpdateNotification("n5", "Cloudflare incident resolved", "Performance restored across all North America regions", "5h", NotificationType.INCIDENT, isRead = true)
         )
+
+        val defaultReminders = listOf(
+            ReminderItem("r1", "Daily Standup", "09:30 AM", isEnabled = true),
+            ReminderItem("r2", "Review GhostCart KPIs", "02:00 PM", isEnabled = true),
+            ReminderItem("r3", "Weekly Architecture Planning", "05:00 PM", isEnabled = true)
+        )
+    }
+}
+
+private fun NotificationEntity.toDomain(): UpdateNotification {
+    return UpdateNotification(
+        id = id,
+        title = title,
+        description = description,
+        timeAgo = timeAgo,
+        type = type,
+        isRead = state == NotificationState.READ
     )
+}
 
-    private val _toggleStates = MutableStateFlow(NotificationToggleState())
-
-    val notifications: Flow<List<UpdateNotification>> = _notifications.asStateFlow()
-    val reminders: Flow<List<ReminderItem>> = _reminders.asStateFlow()
-    val toggleStates: Flow<NotificationToggleState> = _toggleStates.asStateFlow()
-
-    fun toggleReminder(id: String) {
-        _reminders.update { list ->
-            list.map { if (it.id == id) it.copy(isEnabled = !it.isEnabled) else it }
-        }
-    }
-
-    fun updateToggle(update: (NotificationToggleState) -> NotificationToggleState) {
-        _toggleStates.update(update)
-    }
+private fun ReminderEntity.toDomain(): ReminderItem {
+    return ReminderItem(
+        id = id,
+        title = title,
+        dueText = dueText,
+        isEnabled = isEnabled
+    )
 }

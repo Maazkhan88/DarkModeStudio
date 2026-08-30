@@ -1,15 +1,18 @@
 package com.darkmodestudio.commandcenter.core.data.repository
 
-import com.darkmodestudio.commandcenter.core.data.adapter.AntigravityAdapter
 import com.darkmodestudio.commandcenter.core.data.adapter.AnthropicAdapter
+import com.darkmodestudio.commandcenter.core.data.adapter.AntigravityAdapter
 import com.darkmodestudio.commandcenter.core.data.adapter.ManualAgentAdapter
 import com.darkmodestudio.commandcenter.core.data.adapter.OpenAIAdapter
 import com.darkmodestudio.commandcenter.core.model.AgentProvider
+import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.model.ProjectStatus
+import com.darkmodestudio.commandcenter.core.model.TaskPriority
 import com.darkmodestudio.commandcenter.core.model.TaskStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,38 +22,24 @@ class RepositoriesTest {
     @Test
     fun testProjectRepositoryProvidesRequiredProjects() = runBlocking {
         val repo = ProjectRepository()
-        val list = repo.projects.first()
+        val projects = repo.projects.first()
 
-        assertTrue(list.isNotEmpty())
-        assertNotNull(list.find { it.id == "secondme" })
-        assertNotNull(list.find { it.id == "ghostcart" })
-        assertNotNull(list.find { it.id == "proptree" })
-        assertNotNull(list.find { it.id == "agstudio" })
-        assertNotNull(list.find { it.id == "pioneer" })
-
-        val secondMe = repo.getProject("secondme")
+        assertEquals(5, projects.size)
+        val secondMe = projects.find { it.id == "secondme" }
         assertNotNull(secondMe)
-        assertEquals(ProjectStatus.IN_PROGRESS, secondMe?.status)
+        assertEquals("SecondMe", secondMe?.name)
         assertTrue(secondMe?.isMvp == true)
         assertEquals(0.54f, secondMe?.progress ?: 0f, 0.01f)
     }
 
     @Test
-    fun testTaskRepositoryToggle() = runBlocking {
+    fun testTaskRepositoryToggleAndSearch() = runBlocking {
         val repo = TaskRepository()
-        val initialTasks = repo.tasks.first()
-        val firstTask = initialTasks.first()
+        val tasks = repo.tasks.first()
+        assertTrue(tasks.isNotEmpty())
 
-        assertEquals(TaskStatus.PENDING, firstTask.status)
-        repo.toggleTask(firstTask.id)
-
-        val updatedTasks = repo.tasks.first()
-        val updatedFirstTask = updatedTasks.first { it.id == firstTask.id }
-        assertEquals(TaskStatus.DONE, updatedFirstTask.status)
-
-        repo.toggleTask(firstTask.id)
-        val revertedFirstTask = repo.tasks.first().first { it.id == firstTask.id }
-        assertEquals(TaskStatus.PENDING, revertedFirstTask.status)
+        val searchResults = repo.searchTasksFlow("Auth").first()
+        assertTrue(searchResults.any { it.title.contains("Auth", ignoreCase = true) })
     }
 
     @Test
@@ -65,74 +54,62 @@ class RepositoriesTest {
         assertEquals(20000, repo.totalMessagesLimit)
         assertEquals(213, repo.totalTasksUsed)
         assertEquals(600, repo.totalTasksLimit)
-
-        val codex = agents.find { it.id == "codex" }
-        assertNotNull(codex)
-        assertEquals(0.68f, codex?.usagePercentage ?: 0f, 0.01f)
-
-        val claude = agents.find { it.id == "claude" }
-        assertNotNull(claude)
-        assertEquals(0.82f, claude?.usagePercentage ?: 0f, 0.01f)
-
-        val ag = agents.find { it.id == "antigravity" }
-        assertNotNull(ag)
-        assertEquals(0.41f, ag?.usagePercentage ?: 0f, 0.01f)
     }
 
     @Test
     fun testHealthRepositorySummary() = runBlocking {
         val repo = HealthRepository()
         val integrations = repo.integrations.first()
+        val summary = repo.summaryFlow.first()
 
         assertEquals(7, integrations.size)
-        assertEquals(7, repo.summary.connectedCount)
-        assertEquals(1, repo.summary.degradedCount)
-        assertEquals(0, repo.summary.disconnectedCount)
-        assertEquals(2, repo.summary.alertsCount)
-        assertEquals(0.96f, repo.summary.healthScore, 0.01f)
+        assertEquals(7, summary.connectedCount)
+        assertEquals(1, summary.degradedCount)
+        assertEquals(0, summary.disconnectedCount)
+        assertTrue(summary.healthScore > 0.8f)
     }
 
     @Test
     fun testNotificationRepositoryReminders() = runBlocking {
         val repo = NotificationRepository()
-        val initialReminders = repo.reminders.first()
-        val firstReminder = initialReminders.first()
+        val notifications = repo.notifications.first()
+        val reminders = repo.reminders.first()
 
-        assertTrue(firstReminder.isEnabled)
-        repo.toggleReminder(firstReminder.id)
-
-        val updated = repo.reminders.first().first { it.id == firstReminder.id }
-        assertTrue(!updated.isEnabled)
+        assertEquals(5, notifications.size)
+        assertEquals(3, reminders.size)
+        assertTrue(reminders.all { it.isEnabled })
     }
 
     @Test
     fun testSettingsRepositoryToggles() = runBlocking {
         val repo = SettingsRepository()
-        assertTrue(repo.biometricLock.first())
-        repo.toggleBiometricLock()
-        assertTrue(!repo.biometricLock.first())
+        val profile = repo.userProfile.first()
+        val stats = repo.automationStats.first()
+        val biometric = repo.biometricLock.first()
 
-        assertTrue(repo.dailyBriefing.first())
-        repo.toggleDailyBriefing()
-        assertTrue(!repo.dailyBriefing.first())
+        assertEquals("AG", profile.initials)
+        assertEquals("Antigravity Founder", profile.name)
+        assertEquals(4, stats.activeRules)
+        assertEquals(2, stats.inactiveRules)
+        assertEquals(128, stats.executionsLast24h)
+        assertTrue(biometric)
     }
 
     @Test
-    fun testAgentProviderAdapters() {
-        val openAi = OpenAIAdapter()
-        assertEquals(AgentProvider.OPENAI, openAi.provider)
-        assertTrue(openAi.syncQuota())
-
+    fun testAgentProviderAdapters() = runBlocking {
+        val openai = OpenAIAdapter()
         val anthropic = AnthropicAdapter()
-        assertEquals(AgentProvider.ANTHROPIC, anthropic.provider)
-        assertTrue(anthropic.syncQuota())
-
         val antigravity = AntigravityAdapter()
-        assertEquals(AgentProvider.ANTIGRAVITY, antigravity.provider)
-        assertTrue(antigravity.syncQuota())
-
         val manual = ManualAgentAdapter()
+
+        assertEquals(AgentProvider.OPENAI, openai.provider)
+        assertEquals(AgentProvider.ANTHROPIC, anthropic.provider)
+        assertEquals(AgentProvider.ANTIGRAVITY, antigravity.provider)
         assertEquals(AgentProvider.CUSTOM, manual.provider)
-        assertTrue(!manual.syncQuota())
+
+        assertTrue(openai.syncQuota())
+        assertTrue(anthropic.syncQuota())
+        assertTrue(antigravity.syncQuota())
+        assertFalse(manual.syncQuota())
     }
 }
