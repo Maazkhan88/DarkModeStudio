@@ -216,9 +216,9 @@ abstract class DmsDatabase : RoomDatabase() {
         }
 
         /**
-         * Failure-Safe All-or-Nothing Database Fileset Migration
-         * Treats primary DB, WAL journal, and SHM shared memory as a single atomic unit.
-         * Uses copy-and-verify semantics before deleting source legacy files.
+         * Crash-Safe All-or-Nothing Database Fileset Migration
+         * Uses temporary staging files (.migrating) and promotes the final main DB filename LAST (the commit point).
+         * Legacy files are only deleted after the final promoted fileset is verified.
          */
         fun migrateLegacyDatabaseFileIfPresent(context: Context): Boolean {
             val legacyDb = context.getDatabasePath(LEGACY_DATABASE_NAME)
@@ -236,52 +236,98 @@ abstract class DmsDatabase : RoomDatabase() {
             val currentWal = File(parentDir, "$DATABASE_NAME-wal")
             val currentShm = File(parentDir, "$DATABASE_NAME-shm")
 
+            val tempDb = File(parentDir, "$DATABASE_NAME.migrating")
+            val tempWal = File(parentDir, "$DATABASE_NAME-wal.migrating")
+            val tempShm = File(parentDir, "$DATABASE_NAME-shm.migrating")
+
             val hasWal = legacyWal.exists()
             val hasShm = legacyShm.exists()
 
             parentDir.mkdirs()
 
+            // Clean up any stale incomplete temp migration files from a previous crashed attempt
+            if (tempDb.exists()) tempDb.delete()
+            if (tempWal.exists()) tempWal.delete()
+            if (tempShm.exists()) tempShm.delete()
+
             return try {
-                // Stage 1: Safe copy primary database
-                legacyDb.copyTo(currentDb, overwrite = true)
-                if (!currentDb.exists() || (legacyDb.length() > 0L && currentDb.length() != legacyDb.length())) {
-                    currentDb.delete()
+                // Stage 1: Safe copy legacy primary database to temp staging
+                legacyDb.copyTo(tempDb, overwrite = true)
+                if (!tempDb.exists() || (legacyDb.length() > 0L && tempDb.length() != legacyDb.length())) {
+                    tempDb.delete()
                     return false
                 }
 
-                // Stage 2: Safe copy WAL if present
+                // Stage 2: Safe copy legacy WAL to temp staging if present
                 if (hasWal) {
-                    legacyWal.copyTo(currentWal, overwrite = true)
-                    if (!currentWal.exists() || (legacyWal.length() > 0L && currentWal.length() != legacyWal.length())) {
-                        currentDb.delete()
+                    legacyWal.copyTo(tempWal, overwrite = true)
+                    if (!tempWal.exists() || (legacyWal.length() > 0L && tempWal.length() != legacyWal.length())) {
+                        tempDb.delete()
+                        tempWal.delete()
+                        return false
+                    }
+                }
+
+                // Stage 3: Safe copy legacy SHM to temp staging if present
+                if (hasShm) {
+                    legacyShm.copyTo(tempShm, overwrite = true)
+                    if (!tempShm.exists() || (legacyShm.length() > 0L && tempShm.length() != legacyShm.length())) {
+                        tempDb.delete()
+                        tempWal.delete()
+                        tempShm.delete()
+                        return false
+                    }
+                }
+
+                // Stage 4: Promote staging companions first
+                if (hasWal) {
+                    val walPromoted = tempWal.renameTo(currentWal)
+                    if (!walPromoted || !currentWal.exists()) {
+                        tempDb.delete()
+                        tempWal.delete()
+                        tempShm.delete()
                         currentWal.delete()
                         return false
                     }
                 }
 
-                // Stage 3: Safe copy SHM if present
                 if (hasShm) {
-                    legacyShm.copyTo(currentShm, overwrite = true)
-                    if (!currentShm.exists() || (legacyShm.length() > 0L && currentShm.length() != legacyShm.length())) {
-                        currentDb.delete()
+                    val shmPromoted = tempShm.renameTo(currentShm)
+                    if (!shmPromoted || !currentShm.exists()) {
+                        tempDb.delete()
+                        tempShm.delete()
                         currentWal.delete()
                         currentShm.delete()
                         return false
                     }
                 }
 
-                // Stage 4: Verification
+                // Stage 5: Promote temp main DB -> final main DB LAST (Commit Point)
+                val mainPromoted = tempDb.renameTo(currentDb)
+                if (!mainPromoted || !currentDb.exists()) {
+                    tempDb.delete()
+                    currentDb.delete()
+                    currentWal.delete()
+                    currentShm.delete()
+                    return false
+                }
+
+                // Stage 6: Verify final fileset
                 if (!currentDb.exists()) return false
                 if (hasWal && !currentWal.exists()) return false
                 if (hasShm && !currentShm.exists()) return false
 
-                // Stage 5: Delete originals only after destination fileset is validated
+                // Stage 7: Delete legacy source files now that final promotion is committed
                 legacyDb.delete()
                 if (hasWal) legacyWal.delete()
                 if (hasShm) legacyShm.delete()
 
                 true
             } catch (_: Exception) {
+                // Ensure temp files and partial final files are cleaned up on exception
+                if (tempDb.exists()) tempDb.delete()
+                if (tempWal.exists()) tempWal.delete()
+                if (tempShm.exists()) tempShm.delete()
                 if (currentDb.exists()) currentDb.delete()
                 if (currentWal.exists()) currentWal.delete()
                 if (currentShm.exists()) currentShm.delete()

@@ -142,35 +142,48 @@ class GitHubSyncer(
 
         // 1. Ingest Real Repositories as Real Projects in Room SQLite (NO synthetic project management fields)
         if (result.repos.isNotEmpty()) {
-            val liveProjects = result.repos.map { repo ->
+            for (repo in result.repos) {
                 val id = repo.name.lowercase().replace(" ", "-")
                 val iconTag = repo.name.take(2).uppercase()
                 val existingProject = database.projectDao().getProjectById(id)
                 val exactLastUpdate = DmsTimeFormatter.parseIsoToLocal(repo.pushedAt ?: repo.updatedAt) ?: "Unknown"
                 val createdDate = DmsTimeFormatter.parseIsoToLocalDateOnly(repo.createdAt) ?: DmsTimeFormatter.parseIsoToLocalDateOnly(repo.pushedAt) ?: "Unknown"
 
-                ProjectEntity(
-                    id = id,
-                    name = repo.name,
-                    description = repo.description ?: "Repository ${repo.fullName}",
-                    iconTag = iconTag,
-                    status = existingProject?.status ?: ProjectStatus.IMPORTED,
-                    isMvp = existingProject?.isMvp ?: false,
-                    owner = repo.fullName.substringBefore("/"),
-                    createdAt = createdDate,
-                    dueDate = existingProject?.dueDate ?: "",
-                    nextMilestone = existingProject?.nextMilestone ?: "",
-                    manualProgressOverride = existingProject?.manualProgressOverride,
-                    planningWeight = existingProject?.planningWeight ?: 0f,
-                    developmentWeight = existingProject?.developmentWeight ?: 0f,
-                    testingWeight = existingProject?.testingWeight ?: 0f,
-                    deploymentWeight = existingProject?.deploymentWeight ?: 0f,
-                    lastUpdate = exactLastUpdate,
-                    repositoryFullName = repo.fullName,
-                    repositoryDefaultBranch = repo.defaultBranch
-                )
+                if (existingProject == null) {
+                    val newProject = ProjectEntity(
+                        id = id,
+                        name = repo.name,
+                        description = repo.description ?: "Repository ${repo.fullName}",
+                        iconTag = iconTag,
+                        status = ProjectStatus.IMPORTED,
+                        isMvp = false,
+                        owner = repo.fullName.substringBefore("/"),
+                        createdAt = createdDate,
+                        dueDate = "",
+                        nextMilestone = "",
+                        manualProgressOverride = null,
+                        planningWeight = 0f,
+                        developmentWeight = 0f,
+                        testingWeight = 0f,
+                        deploymentWeight = 0f,
+                        lastUpdate = exactLastUpdate,
+                        repositoryFullName = repo.fullName,
+                        repositoryDefaultBranch = repo.defaultBranch
+                    )
+                    database.projectDao().insertProject(newProject)
+                } else {
+                    val updatedProject = existingProject.copy(
+                        name = repo.name,
+                        description = repo.description ?: existingProject.description,
+                        owner = repo.fullName.substringBefore("/"),
+                        createdAt = if (existingProject.createdAt.isNotBlank() && existingProject.createdAt != "Unknown") existingProject.createdAt else createdDate,
+                        lastUpdate = exactLastUpdate,
+                        repositoryFullName = repo.fullName,
+                        repositoryDefaultBranch = repo.defaultBranch
+                    )
+                    database.projectDao().updateProject(updatedProject)
+                }
             }
-            database.projectDao().insertProjects(liveProjects)
         }
 
         // 2. Ingest Real Commits into Project Activities with Exact UTC-to-Local Date & Time

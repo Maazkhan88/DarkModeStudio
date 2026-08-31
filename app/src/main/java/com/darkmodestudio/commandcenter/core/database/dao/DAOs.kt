@@ -80,10 +80,10 @@ interface ProjectDao {
     @Query("SELECT * FROM projects WHERE id = :projectId LIMIT 1")
     suspend fun getProjectById(projectId: String): ProjectEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertProject(project: ProjectEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertProjects(projects: List<ProjectEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -103,6 +103,15 @@ interface ProjectDao {
 
     @Query("SELECT COUNT(*) FROM projects")
     suspend fun getProjectCount(): Int
+
+    @Query("SELECT COUNT(*) FROM project_milestones WHERE projectId = :projectId")
+    suspend fun getMilestoneCount(projectId: String): Int
+
+    @Query("SELECT COUNT(*) FROM project_blockers WHERE projectId = :projectId")
+    suspend fun getBlockerCount(projectId: String): Int
+
+    @Query("SELECT COUNT(*) FROM project_activities WHERE projectId = :projectId")
+    suspend fun getActivityCount(projectId: String): Int
 }
 
 @Dao
