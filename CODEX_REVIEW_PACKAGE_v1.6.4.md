@@ -55,6 +55,8 @@ This remediation resolves the final production data-integrity release blockers:
 - **Android Lint**: **0 errors** (`./gradlew lintDebug`)
 - **Debug APK Assembly**: **BUILD SUCCESSFUL** (`./gradlew assembleDebug`)
 - **APK SHA-256**: `DE8256B520B2602C036E9E577C644B3A0ED0AC48C8E6776BFCDD327920256EB6` (Size: 18,802,486 bytes)
+- **GitHub Actions CI Run**: [https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33424712342](https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33424712342) (Status: SUCCESS)
+- **GitHub Actions Artifact**: `DarkModeStudio-v1.6.4-debug` (ID: 9770361435)
 
 ### Test Suite Execution
 1. `GitHubProjectPreservationTest.kt` — Validates non-destructive parent updates, child FK CASCADE preservation (milestones, blockers, activities, tasks), and DMS planning state retention.
