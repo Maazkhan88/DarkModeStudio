@@ -29,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -111,12 +110,13 @@ fun DmsPrimaryButton(
 }
 
 @Composable
-fun DmsSecondaryOutlineButton(
+fun DmsSecondaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     icon: ImageVector? = null,
-    height: Dp = 40.dp
+    height: Dp = 46.dp
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -131,11 +131,12 @@ fun DmsSecondaryOutlineButton(
             .height(height)
             .scale(scale)
             .clip(DmsRadii.ShapeR12)
-            .background(DmsColors.Surface01)
+            .background(if (enabled) DmsColors.Surface02 else DmsColors.Surface01)
             .border(BorderStroke(1.dp, DmsColors.White20), DmsRadii.ShapeR12)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
+                enabled = enabled,
                 onClick = onClick
             )
             .padding(horizontal = 14.dp),
@@ -163,6 +164,23 @@ fun DmsSecondaryOutlineButton(
             )
         }
     }
+}
+
+@Composable
+fun DmsSecondaryOutlineButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    height: Dp = 40.dp
+) {
+    DmsSecondaryButton(
+        text = text,
+        onClick = onClick,
+        modifier = modifier,
+        icon = icon,
+        height = height
+    )
 }
 
 @Composable

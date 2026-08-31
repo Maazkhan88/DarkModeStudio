@@ -300,7 +300,7 @@ data class AppSettingsEntity(
     val taskDeadlines: Boolean = true,
     val agentLimitWarnings: Boolean = true,
     val platformIncidents: Boolean = true,
-    val schemaSeedVersion: Int = 5
+    val schemaSeedVersion: Int = 6
 )
 
 @Entity(
@@ -319,4 +319,30 @@ data class RepositoryFileEntryEntity(
     val sha: String = "",
     val downloadUrl: String? = null,
     val lastCached: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "provider_connections")
+data class ProviderConnectionEntity(
+    @PrimaryKey val providerId: String,
+    val authMethod: String,
+    val connectionState: String,
+    val accountDisplayName: String? = null,
+    val accountId: String? = null,
+    val workspaceName: String? = null,
+    val grantedScopes: String? = null,
+    val expiresAt: Long? = null,
+    val lastVerifiedAt: String? = null,
+    val lastError: String? = null,
+    val runtimeHostId: String? = null
+)
+
+@Entity(tableName = "desktop_hosts")
+data class DesktopHostEntity(
+    @PrimaryKey val hostId: String,
+    val hostName: String,
+    val hostAddress: String,
+    val isOnline: Boolean = false,
+    val lastSeen: String = "",
+    val authToken: String? = null,
+    val availableAgents: String = ""
 )

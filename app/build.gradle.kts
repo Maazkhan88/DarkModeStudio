@@ -14,8 +14,8 @@ android {
         applicationId = "com.darkmodestudio.commandcenter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.6.4"
+        versionCode = 4
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

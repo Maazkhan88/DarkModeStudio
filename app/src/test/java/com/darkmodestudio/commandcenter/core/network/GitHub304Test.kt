@@ -2,6 +2,9 @@ package com.darkmodestudio.commandcenter.core.network
 
 import androidx.room.Room
 import com.darkmodestudio.commandcenter.core.database.DmsDatabase
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationIncidentEntity
+import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
 import com.darkmodestudio.commandcenter.core.model.IntegrationHealth
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.sync.GitHubSyncer
@@ -154,5 +157,67 @@ class GitHub304Test {
         val integration2 = database.integrationDao().getIntegrationById("github")
         assertNotNull(integration2)
         assertEquals(IntegrationHealth.OPERATIONAL, integration2!!.health)
+    }
+
+    @Test
+    fun http304_preservesChildMetricsAndIncidentsWithoutCascadeDeletion() = runBlocking {
+        // Pre-populate GitHub integration with child metrics and historical incident
+        val initialIntegration = IntegrationEntity(
+            id = "github",
+            name = "GitHub",
+            category = "Code & CI/CD",
+            isConnected = true,
+            health = IntegrationHealth.OPERATIONAL,
+            lastSync = "Earlier",
+            primaryMetric = "All CI Actions Passing (1 Repos)"
+        )
+        database.integrationDao().insertIntegration(initialIntegration)
+
+        val metrics = listOf(
+            IntegrationMetricEntity(integrationId = "github", label = "Open PRs", value = "5 open PRs"),
+            IntegrationMetricEntity(integrationId = "github", label = "Workflows", value = "8 passing / 0 failing"),
+            IntegrationMetricEntity(integrationId = "github", label = "Last Push", value = "Today 10:00 AM")
+        )
+        database.integrationDao().insertMetrics(metrics)
+
+        val incident = IntegrationIncidentEntity(
+            id = "inc_gh_01",
+            integrationId = "github",
+            title = "Workflow failure on main",
+            description = "CI build pipeline failure",
+            timestamp = "Yesterday",
+            isResolved = true
+        )
+        database.integrationDao().insertIncidents(listOf(incident))
+
+        assertEquals(3, database.integrationDao().getMetricCount("github"))
+        assertEquals(1, database.integrationDao().getIncidentCount("github"))
+
+        // Mock 304 Not Modified
+        val mockClient = OkHttpClient.Builder()
+            .addInterceptor(Interceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(304)
+                    .message("Not Modified")
+                    .body("".toResponseBody("application/json".toMediaTypeOrNull()))
+                    .build()
+            })
+            .build()
+
+        val connector = GitHubConnector(mockClient)
+        val syncer = GitHubSyncer(database, keystoreManager, connector)
+
+        val syncResult = syncer.sync(SyncMode.FOREGROUND)
+        assertTrue(syncResult.isSuccess)
+
+        // Verify metrics and incident are completely intact
+        val postSyncMetrics = database.integrationDao().getMetricsByIntegration("github")
+        assertEquals(3, postSyncMetrics.size)
+        assertTrue(postSyncMetrics.any { it.label == "Open PRs" && it.value == "5 open PRs" })
+        assertTrue(postSyncMetrics.any { it.label == "Workflows" && it.value == "8 passing / 0 failing" })
+
+        assertEquals(1, database.integrationDao().getIncidentCount("github"))
     }
 }

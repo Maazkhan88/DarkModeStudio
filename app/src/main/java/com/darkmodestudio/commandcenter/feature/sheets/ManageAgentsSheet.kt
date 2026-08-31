@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsPrimaryButton
+import com.darkmodestudio.commandcenter.core.designsystem.component.DmsSecondaryButton
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsStatusCapsule
 import com.darkmodestudio.commandcenter.core.designsystem.component.NodeStyle
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
@@ -44,7 +46,8 @@ import com.darkmodestudio.commandcenter.core.model.Agent
 fun ManageAgentsSheet(
     agents: List<Agent>,
     onDismiss: () -> Unit,
-    onRefreshQuotas: () -> Unit
+    onRefreshQuotas: () -> Unit,
+    onPairDesktopHost: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -68,11 +71,11 @@ fun ManageAgentsSheet(
             ) {
                 Column {
                     Text(
-                        text = "Manage Coding Agents",
+                        text = "AI Agent Runtimes",
                         style = DmsTheme.typography.h3
                     )
                     Text(
-                        text = "Configured local agent runtimes & bridges",
+                        text = "Official CLI runtime sessions via DMS Desktop Host",
                         style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
                     )
                 }
@@ -85,17 +88,28 @@ fun ManageAgentsSheet(
                 }
             }
 
-            // Notice about provider quota telemetry
+            // Desktop Host & Security Guidance Card
             DmsCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = DmsRadii.ShapeR12,
                 backgroundColor = DmsColors.Surface02,
                 padding = 10.dp
             ) {
-                Text(
-                    text = "Subscription Quotas: Direct provider API quota telemetry requires enterprise admin keys. Tracking operates via Dark Mode Studio local session logs.",
-                    style = DmsTheme.typography.caption.copy(fontSize = 10.sp, color = DmsColors.White64)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Computer,
+                        contentDescription = null,
+                        tint = DmsColors.White64,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Agents run inside your authenticated desktop sessions (ChatGPT, Claude App, Google/keyring). API keys and billing remain strictly separate.",
+                        style = DmsTheme.typography.caption.copy(fontSize = 10.sp, color = DmsColors.White64, lineHeight = 14.sp)
+                    )
+                }
             }
 
             LazyColumn(
@@ -103,6 +117,13 @@ fun ManageAgentsSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(agents) { agent ->
+                    val authSource = when (agent.id) {
+                        "codex" -> "ChatGPT Account (Desktop Runtime)"
+                        "claude" -> "Claude App Subscription (Desktop Runtime)"
+                        "antigravity" -> "Google Account / agy keyring (Desktop Runtime)"
+                        else -> "Local Runtime Session"
+                    }
+
                     DmsCard(
                         modifier = Modifier.fillMaxWidth(),
                         shape = DmsRadii.ShapeR16,
@@ -116,11 +137,12 @@ fun ManageAgentsSheet(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(34.dp)
                                         .clip(DmsRadii.ShapeR8)
                                         .background(DmsColors.SurfaceSelected)
                                         .border(BorderStroke(1.dp, DmsColors.White20), DmsRadii.ShapeR8),
@@ -134,7 +156,7 @@ fun ManageAgentsSheet(
                                     )
                                 }
 
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = agent.name,
                                         style = DmsTheme.typography.label.copy(
@@ -143,17 +165,18 @@ fun ManageAgentsSheet(
                                         )
                                     )
                                     Text(
-                                        text = "${agent.provider.displayName} • ${agent.mode}",
+                                        text = authSource,
                                         style = DmsTheme.typography.caption.copy(
-                                            fontSize = 10.sp,
+                                            fontSize = 9.5.sp,
                                             color = DmsColors.White48
-                                        )
+                                        ),
+                                        maxLines = 1
                                     )
                                 }
                             }
 
                             DmsStatusCapsule(
-                                text = "Local Session",
+                                text = "Runtime Ready",
                                 nodeStyle = NodeStyle.SOLID,
                                 height = 24.dp
                             )
@@ -162,16 +185,30 @@ fun ManageAgentsSheet(
                 }
             }
 
-            DmsPrimaryButton(
-                text = "Refresh Local Quotas",
-                onClick = {
-                    onRefreshQuotas()
-                    onDismiss()
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DmsSecondaryButton(
+                    text = "Pair Desktop Host",
+                    onClick = {
+                        onPairDesktopHost?.invoke()
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                DmsPrimaryButton(
+                    text = "Refresh Sessions",
+                    onClick = {
+                        onRefreshQuotas()
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
         }
     }
 }

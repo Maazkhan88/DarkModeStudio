@@ -167,4 +167,86 @@ class RoomMigrationTest {
 
         dbV5.close()
     }
+
+    @Test
+    fun migration5to6_usingMigrationTestHelper_validatesSchemaAndCreatesConnectionTables() {
+        val dbV5 = helper.createDatabase(TEST_DB, 5)
+        dbV5.execSQL(
+            """
+            INSERT INTO projects (
+                id, name, description, iconTag, status, isMvp, owner, createdAt, dueDate, nextMilestone,
+                manualProgressOverride, planningWeight, developmentWeight, testingWeight, deploymentWeight, lastUpdate,
+                repositoryFullName, repositoryDefaultBranch
+            ) VALUES (
+                'app1', 'App 1', 'Desc', 'A1', 'IMPORTED', 0, 'User', '2026-08-31', '', '',
+                NULL, 0.0, 0.0, 0.0, 0.0, 'Today', 'User/App1', 'main'
+            )
+            """.trimIndent()
+        )
+        dbV5.close()
+
+        val dbV6 = helper.runMigrationsAndValidate(TEST_DB, 6, true, MIGRATION_5_6)
+
+        // Verify project data is preserved
+        val cursorProj = dbV6.query("SELECT * FROM projects WHERE id = 'app1'")
+        assertTrue(cursorProj.moveToFirst())
+        assertEquals("App 1", cursorProj.getString(cursorProj.getColumnIndexOrThrow("name")))
+        cursorProj.close()
+
+        // Verify provider_connections table exists and allows insertion
+        dbV6.execSQL(
+            """
+            INSERT INTO provider_connections (
+                providerId, authMethod, connectionState, accountDisplayName, lastVerifiedAt
+            ) VALUES (
+                'github', 'OAuth 2.0 (PKCE)', 'CONNECTED', 'Maazkhan88', 'Just now'
+            )
+            """.trimIndent()
+        )
+        val cursorConn = dbV6.query("SELECT * FROM provider_connections WHERE providerId = 'github'")
+        assertTrue(cursorConn.moveToFirst())
+        assertEquals("CONNECTED", cursorConn.getString(cursorConn.getColumnIndexOrThrow("connectionState")))
+        cursorConn.close()
+
+        // Verify desktop_hosts table exists and allows insertion
+        dbV6.execSQL(
+            """
+            INSERT INTO desktop_hosts (
+                hostId, hostName, hostAddress, isOnline, lastSeen, availableAgents
+            ) VALUES (
+                'primary_desktop', 'Dev-Workstation', '127.0.0.1:8998', 1, 'Just now', 'codex,claude_code,antigravity'
+            )
+            """.trimIndent()
+        )
+        val cursorHost = dbV6.query("SELECT * FROM desktop_hosts WHERE hostId = 'primary_desktop'")
+        assertTrue(cursorHost.moveToFirst())
+        assertEquals("Dev-Workstation", cursorHost.getString(cursorHost.getColumnIndexOrThrow("hostName")))
+        cursorHost.close()
+
+        dbV6.close()
+    }
+
+    @Test
+    fun migration4to6_fullChain_validatesSchemaAndPreservesAllData() {
+        val dbV4 = helper.createDatabase(TEST_DB, 4)
+        dbV4.execSQL(
+            """
+            INSERT INTO projects (
+                id, name, description, iconTag, status, isMvp, owner, createdAt, dueDate, nextMilestone,
+                manualProgressOverride, planningWeight, developmentWeight, testingWeight, deploymentWeight, lastUpdate, repositoryFullName
+            ) VALUES (
+                'secondme', 'SecondMe', 'AI Memory Agent', 'SM', 'IMPORTED', 0, 'Maaz', '2026-08-30', '', '',
+                NULL, 0.0, 0.0, 0.0, 0.0, 'Just now', 'Maazkhan88/SecondMe'
+            )
+            """.trimIndent()
+        )
+        dbV4.close()
+
+        val dbV6 = helper.runMigrationsAndValidate(TEST_DB, 6, true, MIGRATION_4_5, MIGRATION_5_6)
+        val cursor = dbV6.query("SELECT * FROM projects WHERE id = 'secondme'")
+        assertTrue(cursor.moveToFirst())
+        assertEquals("SecondMe", cursor.getString(cursor.getColumnIndexOrThrow("name")))
+        cursor.close()
+        dbV6.close()
+    }
 }

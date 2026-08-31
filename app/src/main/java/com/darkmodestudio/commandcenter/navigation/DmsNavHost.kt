@@ -327,7 +327,7 @@ fun DmsNavHost(
         if (showConnectServiceSheet) {
             ConnectServiceSheet(
                 onDismissRequest = { showConnectServiceSheet = false },
-                onSubmit = { provider, token, alias ->
+                onSaveTokenFallback = { provider, token, alias ->
                     coroutineScope.launch {
                         val key = "token_" + provider.name.lowercase()
                         keystoreCredentialManager.saveSecret(key, token)

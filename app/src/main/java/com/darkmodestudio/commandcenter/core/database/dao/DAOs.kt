@@ -14,6 +14,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.AgentUsageSnapshotE
 import com.darkmodestudio.commandcenter.core.database.entity.AppSettingsEntity
 import com.darkmodestudio.commandcenter.core.database.entity.AutomationExecutionEntity
 import com.darkmodestudio.commandcenter.core.database.entity.AutomationRuleEntity
+import com.darkmodestudio.commandcenter.core.database.entity.DesktopHostEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationIncidentEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
@@ -23,6 +24,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.ProjectActivityEnti
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectBlockerEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectMilestoneEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProviderConnectionEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ReminderEntity
 import com.darkmodestudio.commandcenter.core.database.entity.RepositoryFileEntryEntity
 import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
@@ -180,10 +182,10 @@ interface IntegrationDao {
     @Query("SELECT * FROM integration_metrics WHERE integrationId = :integrationId")
     suspend fun getMetricsByIntegration(integrationId: String): List<IntegrationMetricEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertIntegrations(integrations: List<IntegrationEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertIntegration(integration: IntegrationEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -194,6 +196,12 @@ interface IntegrationDao {
 
     @Update
     suspend fun updateIntegration(integration: IntegrationEntity)
+
+    @Query("SELECT COUNT(*) FROM integration_metrics WHERE integrationId = :integrationId")
+    suspend fun getMetricCount(integrationId: String): Int
+
+    @Query("SELECT COUNT(*) FROM integration_incidents WHERE integrationId = :integrationId")
+    suspend fun getIncidentCount(integrationId: String): Int
 }
 
 @Dao
@@ -293,4 +301,37 @@ interface RepositoryFileDao {
 
     @Query("DELETE FROM repository_file_entries WHERE repositoryFullName = :repoFullName")
     suspend fun deleteAllForRepo(repoFullName: String)
+}
+
+@Dao
+interface ProviderConnectionDao {
+    @Query("SELECT * FROM provider_connections")
+    fun getConnectionsFlow(): Flow<List<ProviderConnectionEntity>>
+
+    @Query("SELECT * FROM provider_connections WHERE providerId = :providerId LIMIT 1")
+    fun getConnectionFlow(providerId: String): Flow<ProviderConnectionEntity?>
+
+    @Query("SELECT * FROM provider_connections WHERE providerId = :providerId LIMIT 1")
+    suspend fun getConnection(providerId: String): ProviderConnectionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConnection(connection: ProviderConnectionEntity)
+
+    @Query("DELETE FROM provider_connections WHERE providerId = :providerId")
+    suspend fun deleteConnection(providerId: String)
+}
+
+@Dao
+interface DesktopHostDao {
+    @Query("SELECT * FROM desktop_hosts")
+    fun getHostsFlow(): Flow<List<DesktopHostEntity>>
+
+    @Query("SELECT * FROM desktop_hosts WHERE hostId = :hostId LIMIT 1")
+    suspend fun getHost(hostId: String): DesktopHostEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertHost(host: DesktopHostEntity)
+
+    @Query("DELETE FROM desktop_hosts WHERE hostId = :hostId")
+    suspend fun deleteHost(hostId: String)
 }

@@ -11,12 +11,12 @@ import java.util.concurrent.TimeUnit
 
 data class SupabaseTelemetryResult(
     val isSuccess: Boolean,
-    val latencyMs: Long = 42,
-    val poolUsagePercent: Int = 88,
-    val storageUsedGb: Float = 18.4f,
-    val storageTotalGb: Float = 50.0f,
-    val isDegraded: Boolean = true,
-    val alertMessage: String? = "Connection pool above 85% on replica 02",
+    val latencyMs: Long? = null,
+    val poolUsagePercent: Int? = null,
+    val storageUsedGb: Float? = null,
+    val storageTotalGb: Float? = null,
+    val isDegraded: Boolean = false,
+    val alertMessage: String? = null,
     val errorMessage: String? = null
 )
 
@@ -39,24 +39,25 @@ class SupabaseConnector(
 
             okHttpClient.newCall(request).execute().use { response ->
                 val duration = System.currentTimeMillis() - startTime
-                val poolUsage = if (duration > 150) 88 else 45
-                val isDegraded = poolUsage > 80
-
-                SupabaseTelemetryResult(
-                    isSuccess = response.isSuccessful || response.code == 404,
-                    latencyMs = duration.coerceAtLeast(18),
-                    poolUsagePercent = poolUsage,
-                    isDegraded = isDegraded,
-                    alertMessage = if (isDegraded) "Connection pool above 85% on replica 02" else null
-                )
+                if (response.isSuccessful || response.code == 404) {
+                    SupabaseTelemetryResult(
+                        isSuccess = true,
+                        latencyMs = duration,
+                        isDegraded = false,
+                        alertMessage = null
+                    )
+                } else {
+                    SupabaseTelemetryResult(
+                        isSuccess = false,
+                        latencyMs = duration,
+                        errorMessage = "HTTP ${response.code}: ${response.message.ifBlank { "Service error" }}"
+                    )
+                }
             }
         } catch (e: Exception) {
             SupabaseTelemetryResult(
-                isSuccess = true, // Fallback to simulated healthy metrics if offline
-                latencyMs = 42,
-                poolUsagePercent = 88,
-                isDegraded = true,
-                alertMessage = "Connection pool above 85% on replica 02"
+                isSuccess = false,
+                errorMessage = e.localizedMessage ?: "Network connection failed"
             )
         }
     }
@@ -64,11 +65,11 @@ class SupabaseConnector(
 
 @Serializable
 data class VercelDeploymentDto(
-    val uid: String,
-    val name: String,
-    val url: String,
-    val state: String,
-    val created: Long
+    val uid: String = "",
+    val name: String = "",
+    val url: String = "",
+    val state: String = "",
+    val created: Long = 0
 )
 
 @Serializable
@@ -78,10 +79,10 @@ data class VercelDeploymentsResponseDto(
 
 data class VercelTelemetryResult(
     val isSuccess: Boolean,
-    val productionUrl: String = "secondme-web.app",
-    val buildStatus: String = "Ready in 18s",
-    val dailyDeployments: Int = 14,
-    val edgeLatencyMs: Int = 28,
+    val productionUrl: String? = null,
+    val buildStatus: String? = null,
+    val dailyDeployments: Int? = null,
+    val edgeLatencyMs: Int? = null,
     val errorMessage: String? = null
 )
 
@@ -107,30 +108,32 @@ class VercelConnector(
                     val parsed = json.decodeFromString<VercelDeploymentsResponseDto>(body)
                     val latest = parsed.deployments.firstOrNull()
 
+                    val statusStr = when (latest?.state) {
+                        "READY" -> "Ready"
+                        "BUILDING" -> "Building"
+                        "ERROR" -> "Failed"
+                        "CANCELED" -> "Canceled"
+                        else -> latest?.state ?: "Unknown"
+                    }
+
                     VercelTelemetryResult(
                         isSuccess = true,
-                        productionUrl = latest?.url ?: "secondme-web.app",
-                        buildStatus = if (latest?.state == "READY") "Ready in 18s" else "Building...",
-                        dailyDeployments = parsed.deployments.size.coerceAtLeast(14),
-                        edgeLatencyMs = 28
+                        productionUrl = latest?.url,
+                        buildStatus = statusStr,
+                        dailyDeployments = parsed.deployments.size,
+                        edgeLatencyMs = null
                     )
                 } else {
                     VercelTelemetryResult(
-                        isSuccess = true,
-                        productionUrl = "secondme-web.app",
-                        buildStatus = "Ready in 18s",
-                        dailyDeployments = 14,
-                        edgeLatencyMs = 28
+                        isSuccess = false,
+                        errorMessage = "HTTP ${response.code}: ${response.message.ifBlank { "Vercel API error" }}"
                     )
                 }
             }
         } catch (e: Exception) {
             VercelTelemetryResult(
-                isSuccess = true,
-                productionUrl = "secondme-web.app",
-                buildStatus = "Ready in 18s",
-                dailyDeployments = 14,
-                edgeLatencyMs = 28
+                isSuccess = false,
+                errorMessage = e.localizedMessage ?: "Vercel network connection error"
             )
         }
     }

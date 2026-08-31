@@ -9,9 +9,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.darkmodestudio.commandcenter.core.database.dao.AgentDao
 import com.darkmodestudio.commandcenter.core.database.dao.AutomationDao
+import com.darkmodestudio.commandcenter.core.database.dao.DesktopHostDao
 import com.darkmodestudio.commandcenter.core.database.dao.IntegrationDao
 import com.darkmodestudio.commandcenter.core.database.dao.NotificationDao
 import com.darkmodestudio.commandcenter.core.database.dao.ProjectDao
+import com.darkmodestudio.commandcenter.core.database.dao.ProviderConnectionDao
 import com.darkmodestudio.commandcenter.core.database.dao.ReminderDao
 import com.darkmodestudio.commandcenter.core.database.dao.RepositoryFileDao
 import com.darkmodestudio.commandcenter.core.database.dao.SettingsDao
@@ -22,6 +24,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.AgentUsageSnapshotE
 import com.darkmodestudio.commandcenter.core.database.entity.AppSettingsEntity
 import com.darkmodestudio.commandcenter.core.database.entity.AutomationExecutionEntity
 import com.darkmodestudio.commandcenter.core.database.entity.AutomationRuleEntity
+import com.darkmodestudio.commandcenter.core.database.entity.DesktopHostEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationIncidentEntity
 import com.darkmodestudio.commandcenter.core.database.entity.IntegrationMetricEntity
@@ -30,6 +33,7 @@ import com.darkmodestudio.commandcenter.core.database.entity.ProjectActivityEnti
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectBlockerEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ProjectMilestoneEntity
+import com.darkmodestudio.commandcenter.core.database.entity.ProviderConnectionEntity
 import com.darkmodestudio.commandcenter.core.database.entity.ReminderEntity
 import com.darkmodestudio.commandcenter.core.database.entity.RepositoryFileEntryEntity
 import com.darkmodestudio.commandcenter.core.database.entity.TaskEntity
@@ -155,6 +159,40 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `provider_connections` (
+                `providerId` TEXT NOT NULL,
+                `authMethod` TEXT NOT NULL,
+                `connectionState` TEXT NOT NULL,
+                `accountDisplayName` TEXT,
+                `accountId` TEXT,
+                `workspaceName` TEXT,
+                `grantedScopes` TEXT,
+                `expiresAt` INTEGER,
+                `lastVerifiedAt` TEXT,
+                `lastError` TEXT,
+                `runtimeHostId` TEXT,
+                PRIMARY KEY(`providerId`)
+            )
+        """.trimIndent())
+
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `desktop_hosts` (
+                `hostId` TEXT NOT NULL,
+                `hostName` TEXT NOT NULL,
+                `hostAddress` TEXT NOT NULL,
+                `isOnline` INTEGER NOT NULL,
+                `lastSeen` TEXT NOT NULL,
+                `authToken` TEXT,
+                `availableAgents` TEXT NOT NULL,
+                PRIMARY KEY(`hostId`)
+            )
+        """.trimIndent())
+    }
+}
+
 @Database(
     entities = [
         ProjectEntity::class,
@@ -173,9 +211,11 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         AutomationRuleEntity::class,
         AutomationExecutionEntity::class,
         AppSettingsEntity::class,
-        RepositoryFileEntryEntity::class
+        RepositoryFileEntryEntity::class,
+        ProviderConnectionEntity::class,
+        DesktopHostEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -190,6 +230,8 @@ abstract class DmsDatabase : RoomDatabase() {
     abstract fun automationDao(): AutomationDao
     abstract fun settingsDao(): SettingsDao
     abstract fun repositoryFileDao(): RepositoryFileDao
+    abstract fun providerConnectionDao(): ProviderConnectionDao
+    abstract fun desktopHostDao(): DesktopHostDao
 
     companion object {
         const val DATABASE_NAME = "darkmodestudio_command_center.db"
@@ -207,7 +249,7 @@ abstract class DmsDatabase : RoomDatabase() {
                     DmsDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
 
                 INSTANCE = instance

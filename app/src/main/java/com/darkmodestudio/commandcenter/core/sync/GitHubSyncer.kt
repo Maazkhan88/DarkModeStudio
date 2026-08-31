@@ -71,7 +71,7 @@ class GitHubSyncer(
                     lastError = null,
                     primaryMetric = preservedMetric
                 )
-                database.integrationDao().insertIntegration(updatedIntegration)
+                upsertIntegrationNonDestructively(database, updatedIntegration)
 
                 return@withContext ProviderSyncResult(
                     provider = SecureProvider.GITHUB,
@@ -91,7 +91,7 @@ class GitHubSyncer(
                     lastError = result.errorMessage,
                     primaryMetric = "Invalid Token — Reconnect"
                 )
-                database.integrationDao().insertIntegration(failedIntegration)
+                upsertIntegrationNonDestructively(database, failedIntegration)
 
                 return@withContext ProviderSyncResult(
                     provider = SecureProvider.GITHUB,
@@ -110,7 +110,7 @@ class GitHubSyncer(
                     lastError = "Rate limited",
                     primaryMetric = "Rate Limited — Resets in ${((result.rateLimitResetAt * 1000 - System.currentTimeMillis()) / 60000).coerceAtLeast(1)}m"
                 )
-                database.integrationDao().insertIntegration(degradedIntegration)
+                upsertIntegrationNonDestructively(database, degradedIntegration)
 
                 return@withContext ProviderSyncResult(
                     provider = SecureProvider.GITHUB,
@@ -129,7 +129,7 @@ class GitHubSyncer(
                     lastError = result.errorMessage,
                     primaryMetric = result.errorMessage ?: "Network failure"
                 )
-                database.integrationDao().insertIntegration(failedIntegration)
+                upsertIntegrationNonDestructively(database, failedIntegration)
 
                 return@withContext ProviderSyncResult(
                     provider = SecureProvider.GITHUB,
@@ -270,7 +270,7 @@ class GitHubSyncer(
             lastSuccessfulSync = nowFormatted,
             primaryMetric = primaryMetric
         )
-        database.integrationDao().insertIntegration(updatedIntegration)
+        upsertIntegrationNonDestructively(database, updatedIntegration)
 
         // 6. Update Metrics
         val metrics = listOf(

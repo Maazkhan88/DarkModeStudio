@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,23 +25,33 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.darkmodestudio.commandcenter.core.auth.ConnectionState
+import com.darkmodestudio.commandcenter.core.auth.ProviderCategory
+import com.darkmodestudio.commandcenter.core.auth.ProviderDefinition
+import com.darkmodestudio.commandcenter.core.auth.ProviderRegistry
 import com.darkmodestudio.commandcenter.core.data.repository.HealthRepository
 import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsCard
+import com.darkmodestudio.commandcenter.core.designsystem.component.DmsFilterCapsule
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsPrimaryButton
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsStatusCapsule
+import com.darkmodestudio.commandcenter.core.designsystem.component.DmsTextField
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsToggle
 import com.darkmodestudio.commandcenter.core.designsystem.component.NodeStyle
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
@@ -49,12 +61,7 @@ import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsTheme
 import com.darkmodestudio.commandcenter.core.model.NotificationToggleState
 import kotlinx.coroutines.launch
 
-data class ConnectableServiceItem(
-    val id: String,
-    val name: String,
-    val description: String
-)
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConnectStackScreen(
     healthRepository: HealthRepository,
@@ -66,14 +73,13 @@ fun ConnectStackScreen(
     val integrations by healthRepository.integrations.collectAsState(initial = emptyList())
     val toggleStates by notificationRepository.toggleStates.collectAsState(initial = NotificationToggleState())
 
-    val availableServices = listOf(
-        ConnectableServiceItem("github", "GitHub", "Repos, PRs, and Actions CI workflows"),
-        ConnectableServiceItem("cloudflare", "Cloudflare", "Workers, DNS, and edge deployments"),
-        ConnectableServiceItem("firebase", "Firebase", "Crashlytics, release tracks, and FCM"),
-        ConnectableServiceItem("play_console", "Google Play Console", "Production & internal test tracks"),
-        ConnectableServiceItem("vercel", "Vercel", "Frontend preview and deployment status"),
-        ConnectableServiceItem("supabase", "Supabase", "Postgres database health & storage telemetry")
-    )
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(ProviderCategory.ALL) }
+
+    val providers = remember(searchQuery, selectedCategory) {
+        val byCat = ProviderRegistry.getProvidersByCategory(selectedCategory)
+        if (searchQuery.isBlank()) byCat else ProviderRegistry.searchProviders(searchQuery)
+    }
 
     Column(
         modifier = Modifier
@@ -97,7 +103,7 @@ fun ConnectStackScreen(
             StepNode(step = "3", isActive = false, isCompleted = false)
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         LazyColumn(
             modifier = Modifier
@@ -111,24 +117,59 @@ fun ConnectStackScreen(
                         text = "Connect your stack",
                         style = DmsTheme.typography.displayL
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "«Sign in securely to connect the tools you use. We'll sync data so you can ship with confidence.»",
+                        text = "«Sign in with official OAuth & desktop runtime sessions. Dark Mode Studio encrypts all secrets with Android Keystore.»",
                         style = DmsTheme.typography.body.copy(
                             color = DmsColors.White80,
-                            lineHeight = 20.sp
+                            lineHeight = 19.sp
                         )
                     )
                 }
             }
 
+            // Category Filter Pills
             item {
-                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ProviderCategory.values().forEach { cat ->
+                        DmsFilterCapsule(
+                            text = cat.displayName,
+                            isSelected = selectedCategory == cat,
+                            onClick = { selectedCategory = cat }
+                        )
+                    }
+                }
             }
 
-            // Connection Cards (Height 62dp, Radius 16dp) backed strictly by Room SSOT
-            items(availableServices) { service ->
-                val integration = integrations.find { it.id == service.id }
+            // Search Filter
+            item {
+                DmsTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = "Search providers, AI agents, cloud...",
+                    label = "Filter Stack",
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = DmsColors.White48,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(2.dp))
+            }
+
+            // Provider Cards dynamically sourced from ProviderRegistry
+            items(providers) { provider ->
+                val integration = integrations.find { it.id.equals(provider.id, ignoreCase = true) }
                 val isConnected = integration?.isConnected == true
 
                 DmsCard(
@@ -140,27 +181,51 @@ fun ConnectStackScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
+                            .height(48.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = service.name,
-                                style = DmsTheme.typography.bodySmall.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = DmsColors.White
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(DmsRadii.ShapeR8)
+                                    .background(DmsColors.SurfaceSelected)
+                                    .border(BorderStroke(1.dp, DmsColors.White20), DmsRadii.ShapeR8),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = provider.iconTag,
+                                    style = DmsTheme.typography.label.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = DmsColors.White,
+                                        fontSize = 11.sp
+                                    )
                                 )
-                            )
-                            Text(
-                                text = service.description,
-                                style = DmsTheme.typography.caption.copy(
-                                    fontSize = 10.sp,
-                                    color = DmsColors.White48
-                                ),
-                                maxLines = 1
-                            )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = provider.displayName,
+                                    style = DmsTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.5.sp,
+                                        color = DmsColors.White
+                                    )
+                                )
+                                Text(
+                                    text = provider.description,
+                                    style = DmsTheme.typography.caption.copy(
+                                        fontSize = 9.5.sp,
+                                        color = DmsColors.White48
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -171,7 +236,7 @@ fun ConnectStackScreen(
                                 nodeStyle = NodeStyle.SOLID,
                                 height = 28.dp,
                                 modifier = Modifier.clickable {
-                                    onConnectServiceClick?.invoke(service.id)
+                                    onConnectServiceClick?.invoke(provider.id)
                                 }
                             )
                         } else {
@@ -181,7 +246,7 @@ fun ConnectStackScreen(
                                     .clip(DmsRadii.ShapeR8)
                                     .background(DmsColors.White)
                                     .clickable {
-                                        onConnectServiceClick?.invoke(service.id)
+                                        onConnectServiceClick?.invoke(provider.id)
                                     }
                                     .padding(horizontal = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -227,7 +292,7 @@ fun ConnectStackScreen(
                                 )
                             )
                             Text(
-                                text = "Credentials are encrypted using Android Keystore keys.",
+                                text = "Credentials and OAuth refresh tokens are encrypted on-device via Android Keystore.",
                                 style = DmsTheme.typography.caption.copy(
                                     fontSize = 10.sp,
                                     color = DmsColors.White48
