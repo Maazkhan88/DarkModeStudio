@@ -48,7 +48,20 @@ This release resolves the 3 remaining v1.6.4 release blockers and implements the
 
 ---
 
-## 3. Key Modified and Added Files
+## 3. GitHub Actions CI Run & Artifact Provenance
+
+- **Workflow Run**: `Android Verification CI #33433599415`
+- **Run URL**: [https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33433599415](https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33433599415)
+- **CI Verdict**: `SUCCESS` (Duration: 6m 35s)
+- **Artifact**: `DarkModeStudio-v1.7.0-debug`
+- **CI SHA-256 Checksum (`SHA256SUMS.txt`)**:
+  ```
+  a83973ad0b5bc4ccc6f6c49a7b8cbadcd1ad652f20f94e735342aa07a827b902  app-debug.apk
+  ```
+
+---
+
+## 4. Key Modified and Added Files
 
 - `app/build.gradle.kts` (versionCode 4, versionName 1.7.0)
 - `app/schemas/com.darkmodestudio.commandcenter.core.database.DmsDatabase/6.json` (Room v6 canonical schema)
