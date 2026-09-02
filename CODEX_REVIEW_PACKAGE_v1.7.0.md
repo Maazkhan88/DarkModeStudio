@@ -4,6 +4,8 @@
 **Database Schema**: Room Database `version = 7` (Canonical Schema: `7.json`)  
 **Repository**: `Maazkhan88/DarkModeStudio`  
 **Branch**: `main`  
+**Commit**: `d96aa8b`  
+**CI Run ID**: `33650306275` (Verdict: `SUCCESS`)  
 **Prepared By**: Antigravity (QA Engineer + Secondary Developer)  
 
 ---
@@ -64,7 +66,21 @@ This release turns the Connect Auth and Desktop Agent Runtime architectures from
 
 ---
 
-## 3. Key Modified and Added Files
+## 3. GitHub Actions CI Run & Artifact Provenance
+
+- **Workflow Run**: `Android & Desktop Verification CI #33650306275`
+- **Run URL**: [https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33650306275](https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33650306275)
+- **CI Verdict**: `SUCCESS` (Duration: 3m 24s)
+- **Exact Commit**: `d96aa8b`
+- **Artifact**: `DarkModeStudio-v1.7.0-debug`
+- **CI SHA-256 Checksum (`SHA256SUMS.txt`)**:
+  ```
+  a784a7fd20c575d00b37630e2fc8fa61d04cb2c214216ebecece23ae1dee3414  app-debug.apk
+  ```
+
+---
+
+## 4. Key Modified and Added Files
 
 - `app/build.gradle.kts` (versionCode 4, versionName 1.7.0)
 - `app/schemas/com.darkmodestudio.commandcenter.core.database.DmsDatabase/7.json` (Room v7 canonical schema)
@@ -94,7 +110,7 @@ This release turns the Connect Auth and Desktop Agent Runtime architectures from
 
 ---
 
-## 4. Verification Instructions for Codex
+## 5. Verification Instructions for Codex
 
 1. Clone or fetch repository:
    ```bash
