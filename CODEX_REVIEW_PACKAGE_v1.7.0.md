@@ -4,8 +4,8 @@
 **Database Schema**: Room Database `version = 7` (Canonical Schema: `7.json`)  
 **Repository**: `Maazkhan88/DarkModeStudio`  
 **Branch**: `main`  
-**Commit**: `d96aa8b`  
-**CI Run ID**: `33650306275` (Verdict: `SUCCESS`)  
+**Commit**: `5646613`  
+**CI Run ID**: `33678748259` (Verdict: `SUCCESS`)  
 **Prepared By**: Antigravity (QA Engineer + Secondary Developer)  
 
 ---
@@ -68,14 +68,14 @@ This release turns the Connect Auth and Desktop Agent Runtime architectures from
 
 ## 3. GitHub Actions CI Run & Artifact Provenance
 
-- **Workflow Run**: `Android & Desktop Verification CI #33650306275`
-- **Run URL**: [https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33650306275](https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33650306275)
-- **CI Verdict**: `SUCCESS` (Duration: 3m 24s)
-- **Exact Commit**: `d96aa8b`
+- **Workflow Run**: `Android & Desktop Verification CI #33678748259`
+- **Run URL**: [https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33678748259](https://github.com/Maazkhan88/DarkModeStudio/actions/runs/33678748259)
+- **CI Verdict**: `SUCCESS` (Duration: 3m 42s)
+- **Exact Commit**: `5646613`
 - **Artifact**: `DarkModeStudio-v1.7.0-debug`
 - **CI SHA-256 Checksum (`SHA256SUMS.txt`)**:
   ```
-  a784a7fd20c575d00b37630e2fc8fa61d04cb2c214216ebecece23ae1dee3414  app-debug.apk
+  e5d9ce00b4ba3846b3cda53bb04caee282f804659b68e44575242ef48945ab75  app-debug.apk
   ```
 
 ---
