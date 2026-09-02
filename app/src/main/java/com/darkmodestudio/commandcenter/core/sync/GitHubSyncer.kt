@@ -26,7 +26,8 @@ class GitHubSyncer(
     override val provider: SecureProvider = SecureProvider.GITHUB
 
     override suspend fun sync(mode: SyncMode): ProviderSyncResult = withContext(Dispatchers.IO) {
-        val storedToken = keystoreCredentialManager.getSecret("token_github")
+        val storedToken = keystoreCredentialManager.getSecret("oauth_github_access")
+            ?: keystoreCredentialManager.getSecret("token_github")
         val nowFormatted = DmsTimeFormatter.formatNow()
 
         if (storedToken.isNullOrBlank()) {
@@ -41,12 +42,12 @@ class GitHubSyncer(
                 lastError = null,
                 primaryMetric = "Disconnected — Tap to configure"
             )
-            database.integrationDao().insertIntegration(disconnectedIntegration)
+            upsertIntegrationNonDestructively(database, disconnectedIntegration)
 
             return@withContext ProviderSyncResult(
                 provider = SecureProvider.GITHUB,
                 isSuccess = false,
-                message = "GitHub Personal Access Token not configured"
+                message = "GitHub credentials not configured"
             )
         }
 

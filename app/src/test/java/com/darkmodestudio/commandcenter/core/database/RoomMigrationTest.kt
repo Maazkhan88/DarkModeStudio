@@ -208,26 +208,42 @@ class RoomMigrationTest {
         assertEquals("CONNECTED", cursorConn.getString(cursorConn.getColumnIndexOrThrow("connectionState")))
         cursorConn.close()
 
-        // Verify desktop_hosts table exists and allows insertion
-        dbV6.execSQL(
-            """
-            INSERT INTO desktop_hosts (
-                hostId, hostName, hostAddress, isOnline, lastSeen, availableAgents
-            ) VALUES (
-                'primary_desktop', 'Dev-Workstation', '127.0.0.1:8998', 1, 'Just now', 'codex,claude_code,antigravity'
-            )
-            """.trimIndent()
-        )
-        val cursorHost = dbV6.query("SELECT * FROM desktop_hosts WHERE hostId = 'primary_desktop'")
-        assertTrue(cursorHost.moveToFirst())
-        assertEquals("Dev-Workstation", cursorHost.getString(cursorHost.getColumnIndexOrThrow("hostName")))
-        cursorHost.close()
-
         dbV6.close()
     }
 
     @Test
-    fun migration4to6_fullChain_validatesSchemaAndPreservesAllData() {
+    fun migration6to7_usingMigrationTestHelper_validatesSchemaAndRemovesAuthTokenSecret() {
+        val dbV6 = helper.createDatabase(TEST_DB, 6)
+        dbV6.execSQL(
+            """
+            INSERT INTO desktop_hosts (
+                hostId, hostName, hostAddress, isOnline, lastSeen, authToken, availableAgents
+            ) VALUES (
+                'primary_desktop', 'Dev-Workstation', '192.168.1.50:8998', 1, 'Just now', 'old_secret_to_purge', 'codex,claude,antigravity'
+            )
+            """.trimIndent()
+        )
+        dbV6.close()
+
+        val dbV7 = helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_6_7)
+
+        val cursor = dbV7.query("SELECT * FROM desktop_hosts WHERE hostId = 'primary_desktop'")
+        assertTrue(cursor.moveToFirst())
+        assertEquals("Dev-Workstation", cursor.getString(cursor.getColumnIndexOrThrow("hostName")))
+        assertEquals("192.168.1.50:8998", cursor.getString(cursor.getColumnIndexOrThrow("hostAddress")))
+        assertEquals(1, cursor.getInt(cursor.getColumnIndexOrThrow("isOnline")))
+        assertEquals("codex,claude,antigravity", cursor.getString(cursor.getColumnIndexOrThrow("availableAgents")))
+
+        // Verify authToken column is removed
+        assertEquals(-1, cursor.getColumnIndex("authToken"))
+        // Verify credentialAlias column exists
+        assertTrue(cursor.getColumnIndex("credentialAlias") >= 0)
+        cursor.close()
+        dbV7.close()
+    }
+
+    @Test
+    fun migration4to7_fullChain_validatesSchemaAndPreservesAllData() {
         val dbV4 = helper.createDatabase(TEST_DB, 4)
         dbV4.execSQL(
             """
@@ -242,11 +258,11 @@ class RoomMigrationTest {
         )
         dbV4.close()
 
-        val dbV6 = helper.runMigrationsAndValidate(TEST_DB, 6, true, MIGRATION_4_5, MIGRATION_5_6)
-        val cursor = dbV6.query("SELECT * FROM projects WHERE id = 'secondme'")
+        val dbV7 = helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        val cursor = dbV7.query("SELECT * FROM projects WHERE id = 'secondme'")
         assertTrue(cursor.moveToFirst())
         assertEquals("SecondMe", cursor.getString(cursor.getColumnIndexOrThrow("name")))
         cursor.close()
-        dbV6.close()
+        dbV7.close()
     }
 }

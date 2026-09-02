@@ -45,6 +45,8 @@ import com.darkmodestudio.commandcenter.core.model.Agent
 @Composable
 fun ManageAgentsSheet(
     agents: List<Agent>,
+    isHostOnline: Boolean = false,
+    pairedHostName: String? = null,
     onDismiss: () -> Unit,
     onRefreshQuotas: () -> Unit,
     onPairDesktopHost: (() -> Unit)? = null
@@ -75,8 +77,8 @@ fun ManageAgentsSheet(
                         style = DmsTheme.typography.h3
                     )
                     Text(
-                        text = "Official CLI runtime sessions via DMS Desktop Host",
-                        style = DmsTheme.typography.caption.copy(color = DmsColors.White48)
+                        text = if (isHostOnline && !pairedHostName.isNullOrBlank()) "Paired with $pairedHostName (Online)" else "Desktop Host Bridge Required",
+                        style = DmsTheme.typography.caption.copy(color = if (isHostOnline) DmsColors.White80 else DmsColors.White48)
                     )
                 }
                 IconButton(onClick = onDismiss) {
@@ -102,11 +104,11 @@ fun ManageAgentsSheet(
                     Icon(
                         imageVector = Icons.Outlined.Computer,
                         contentDescription = null,
-                        tint = DmsColors.White64,
+                        tint = if (isHostOnline) DmsColors.White else DmsColors.White64,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "Agents run inside your authenticated desktop sessions (ChatGPT, Claude App, Google/keyring). API keys and billing remain strictly separate.",
+                        text = if (isHostOnline) "Desktop host connected. Agent CLI commands execute on $pairedHostName." else "Agents run inside your authenticated desktop sessions (ChatGPT, Claude App, Google/keyring). Tap 'Pair Desktop Host' to connect.",
                         style = DmsTheme.typography.caption.copy(fontSize = 10.sp, color = DmsColors.White64, lineHeight = 14.sp)
                     )
                 }
@@ -122,6 +124,12 @@ fun ManageAgentsSheet(
                         "claude" -> "Claude App Subscription (Desktop Runtime)"
                         "antigravity" -> "Google Account / agy keyring (Desktop Runtime)"
                         else -> "Local Runtime Session"
+                    }
+
+                    val (statusLabel, nodeStyle) = when {
+                        !isHostOnline -> "Host Required" to NodeStyle.HOLLOW
+                        agent.id == "codex" || agent.id == "claude" || agent.id == "antigravity" -> "Runtime Ready" to NodeStyle.SOLID
+                        else -> "Available" to NodeStyle.SOLID
                     }
 
                     DmsCard(
@@ -176,8 +184,8 @@ fun ManageAgentsSheet(
                             }
 
                             DmsStatusCapsule(
-                                text = "Runtime Ready",
-                                nodeStyle = NodeStyle.SOLID,
+                                text = statusLabel,
+                                nodeStyle = nodeStyle,
                                 height = 24.dp
                             )
                         }
@@ -190,10 +198,9 @@ fun ManageAgentsSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 DmsSecondaryButton(
-                    text = "Pair Desktop Host",
+                    text = if (isHostOnline) "Manage Desktop Pairing" else "Pair Desktop Host",
                     onClick = {
                         onPairDesktopHost?.invoke()
-                        onDismiss()
                     },
                     modifier = Modifier.weight(1f)
                 )

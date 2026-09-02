@@ -47,11 +47,34 @@ export interface AgentSession {
   startedAt: number;
 }
 
+export interface AgentAuthDetectionResult {
+  isAuthenticated: boolean;
+  accountLabel?: string;
+  authType: string;
+  errorMessage?: string;
+}
+
+export interface AgentLoginActionResult {
+  isSuccess: boolean;
+  loginInstructions: string;
+  errorMessage?: string;
+}
+
+export interface AgentVerificationResult {
+  isVerified: boolean;
+  account?: string;
+  capabilities: string[];
+  errorMessage?: string;
+}
+
 export interface AgentProvider {
   id: string;
   name: string;
   role: string;
   detectInstallation(): Promise<{ isInstalled: boolean; version?: string; isAuthenticated: boolean; instructions?: string }>;
+  detectAuth(): Promise<AgentAuthDetectionResult>;
+  startLogin(): Promise<AgentLoginActionResult>;
+  verifyAuth(): Promise<AgentVerificationResult>;
   startSession(options: AgentExecutionOptions): Promise<AgentSession>;
   sendPrompt(sessionId: string, prompt: string, context?: ProjectHandoffContext): Promise<AgentRunResult>;
   cancelSession(sessionId: string): Promise<void>;

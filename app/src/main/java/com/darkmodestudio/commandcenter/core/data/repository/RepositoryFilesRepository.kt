@@ -64,7 +64,8 @@ class RepositoryFilesRepository(
         currentBranch = branch ?: "main"
         currentPath = path
 
-        val token = keystoreCredentialManager.getSecret("token_github")
+        val token = keystoreCredentialManager.getSecret("oauth_github_access")
+            ?: keystoreCredentialManager.getSecret("token_github")
         if (token.isNullOrBlank()) {
             _filesState.value = RepositoryFilesState.Disconnected
             return@withContext

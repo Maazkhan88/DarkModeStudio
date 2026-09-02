@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import os from 'os';
 import { WebSocketServer, WebSocket } from 'ws';
 import { dbManager } from './db/database.ts';
 import { providerRegistry } from './providers/ProviderRegistry.ts';
@@ -8,21 +9,45 @@ import { gitManager } from './git/GitManager.ts';
 import { worktreeManager } from './git/WorktreeManager.ts';
 import { orchestrator } from './orchestrator/Orchestrator.ts';
 import { terminalManager } from './terminal/TerminalManager.ts';
+import { hostPairingManager } from './auth/HostPairingManager.ts';
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-app.use(cors());
+// Restrictive CORS configuration
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow mobile clients, local dev, and Dark Mode Studio origins
+      if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') || origin.startsWith('http://192.168.') || origin.startsWith('http://10.') || origin.startsWith('darkmodestudio://')) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type']
+  })
+);
 app.use(express.json());
 
 // Initialize SQLite database
 await dbManager.init();
 
-// WebSocket connection for live agent log streaming and terminal output
+// WebSocket connection for live agent log streaming and terminal output (Authenticated)
 const connectedClients = new Set<WebSocket>();
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // Verify pairing authentication from URL query parameter or header
+  const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+  const token = url.searchParams.get('token') || (req.headers.authorization?.replace('Bearer ', ''));
+
+  if (!hostPairingManager.isValidToken(token || '')) {
+    ws.close(4001, 'Unauthorized: Valid pairing credential required');
+    return;
+  }
+
   connectedClients.add(ws);
 
   ws.on('message', async (message) => {
@@ -39,7 +64,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => connectedClients.delete(ws));
 });
 
-// Broadcast orchestrator logs to all connected desktop UI clients
+// Broadcast orchestrator logs
 orchestrator.addLogListener((evt) => {
   const payload = JSON.stringify({ eventType: 'AGENT_LOG', ...evt });
   connectedClients.forEach((client) => {
@@ -59,9 +84,152 @@ terminalManager.addOutputListener((evt) => {
   });
 });
 
-// REST API Endpoints
+// ==========================================
+// 1. Host Pairing & Health Endpoints
+// ==========================================
 
-// 1. Projects
+// Health / Status Ping (Public)
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OPERATIONAL',
+    service: 'DarkModeStudio Desktop Host',
+    version: '1.7.0',
+    hostName: os.hostname(),
+    uptime: process.uptime()
+  });
+});
+
+// Generate single-use pairing code (Local UI / CLI)
+app.post('/api/host/pair/generate', (req, res) => {
+  const result = hostPairingManager.generatePairingCode();
+  res.json(result);
+});
+
+// Verify pairing code from mobile client (Public with rate-limiting)
+app.post('/api/host/pair/verify', (req, res) => {
+  const { code, clientName } = req.body;
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ success: false, error: 'Pairing code is required.' });
+  }
+
+  const result = hostPairingManager.verifyPairingCode(code, clientName || 'DMS-Mobile', clientIp);
+  if (!result.success) {
+    return res.status(401).json(result);
+  }
+
+  res.json(result);
+});
+
+// Apply Host Authentication Middleware to all protected routes below
+app.use(hostPairingManager.authMiddleware());
+
+// Host Status (Protected)
+app.get('/api/host/status', (req, res) => {
+  res.json({
+    isOnline: true,
+    hostId: 'primary_desktop',
+    hostName: os.hostname(),
+    availableAgents: 'codex,claude,antigravity'
+  });
+});
+
+// ==========================================
+// 2. Real Agent Runtime APIs (Protected)
+// ==========================================
+
+app.get('/api/runtime/:agentId/detect', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) {
+    return res.status(404).json({ isInstalled: false, errorMessage: `Agent ${req.params.agentId} not recognized` });
+  }
+  const detection = await provider.detectInstallation();
+  res.json({
+    agentId: provider.id,
+    name: provider.name,
+    isInstalled: detection.isInstalled,
+    version: detection.version,
+    isAuthenticated: detection.isAuthenticated,
+    instructions: detection.instructions
+  });
+});
+
+app.get('/api/runtime/:agentId/auth', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) {
+    return res.status(404).json({ isAuthenticated: false, errorMessage: `Agent ${req.params.agentId} not found` });
+  }
+  const authStatus = await provider.detectAuth();
+  res.json(authStatus);
+});
+
+app.post('/api/runtime/:agentId/login', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) {
+    return res.status(404).json({ isSuccess: false, errorMessage: `Agent ${req.params.agentId} not found` });
+  }
+  const loginResult = await provider.startLogin();
+  res.json(loginResult);
+});
+
+app.post('/api/runtime/:agentId/verify', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) {
+    return res.status(404).json({ isVerified: false, errorMessage: `Agent ${req.params.agentId} not found` });
+  }
+  const verifyResult = await provider.verifyAuth();
+  res.json(verifyResult);
+});
+
+app.post('/api/runtime/:agentId/session', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) {
+    return res.status(404).json({ error: `Agent ${req.params.agentId} not found` });
+  }
+  const sessionId = req.body.sessionId || `session-${Date.now()}`;
+  const session = await provider.startSession({
+    sessionId,
+    workingDirectory: req.body.workingDirectory || process.cwd(),
+    worktreeBranch: req.body.worktreeBranch,
+    onLogChunk: (type, text) => {
+      connectedClients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ eventType: 'AGENT_LOG', agentId: provider.id, sessionId, type, text }));
+        }
+      });
+    },
+    onStatusChange: (status) => {
+      connectedClients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ eventType: 'STATUS_CHANGE', agentId: provider.id, sessionId, status }));
+        }
+      });
+    }
+  });
+  res.json(session);
+});
+
+app.post('/api/runtime/:agentId/session/:sessionId/prompt', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) return res.status(404).json({ error: 'Agent not found' });
+
+  const result = await provider.sendPrompt(req.params.sessionId, req.body.prompt, req.body.context);
+  res.json(result);
+});
+
+app.post('/api/runtime/:agentId/session/:sessionId/cancel', async (req, res) => {
+  const provider = providerRegistry.get(req.params.agentId);
+  if (!provider) return res.status(404).json({ error: 'Agent not found' });
+
+  await provider.cancelSession(req.params.sessionId);
+  res.json({ success: true, message: 'Session cancelled' });
+});
+
+// ==========================================
+// 3. Projects, Tasks, Orchestration (Protected)
+// ==========================================
+
 app.get('/api/projects', (req, res) => {
   res.json(dbManager.getProjects());
 });
@@ -72,7 +240,6 @@ app.get('/api/projects/:id', (req, res) => {
   res.json(project);
 });
 
-// 2. Agents & Detection
 app.get('/api/agents', (req, res) => {
   res.json(dbManager.getAgents());
 });
@@ -82,7 +249,6 @@ app.get('/api/agents/detect', async (req, res) => {
   res.json(detection);
 });
 
-// 3. Tasks
 app.get('/api/tasks', (req, res) => {
   const projectId = req.query.projectId as string | undefined;
   res.json(dbManager.getTasks(projectId));
@@ -99,13 +265,11 @@ app.patch('/api/tasks/:id/status', (req, res) => {
   res.json({ success: true });
 });
 
-// 4. Runs & Stages
 app.get('/api/runs', (req, res) => {
   const taskId = req.query.taskId as string | undefined;
   res.json(dbManager.getRuns(taskId));
 });
 
-// 5. Orchestrator: Plan & Execute
 app.post('/api/orchestrate/plan', (req, res) => {
   const { projectId, prompt } = req.body;
   const plan = orchestrator.decomposePrompt(projectId, prompt);
@@ -114,12 +278,10 @@ app.post('/api/orchestrate/plan', (req, res) => {
 
 app.post('/api/orchestrate/execute', async (req, res) => {
   const { plan } = req.body;
-  // Trigger in background without blocking request
   orchestrator.executeWorkflow(plan);
   res.json({ success: true, message: 'Workflow execution started' });
 });
 
-// 6. Decisions & Memory
 app.get('/api/decisions', (req, res) => {
   const projectId = req.query.projectId as string | undefined;
   res.json(dbManager.getDecisions(projectId));
@@ -129,13 +291,11 @@ app.get('/api/memory/:projectId', (req, res) => {
   res.json(dbManager.getProjectMemory(req.params.projectId));
 });
 
-// 7. Activity Events
 app.get('/api/activity', (req, res) => {
   const projectId = req.query.projectId as string | undefined;
   res.json(dbManager.getActivityEvents(projectId));
 });
 
-// 8. Git & Worktrees
 app.get('/api/git/status', async (req, res) => {
   const projectPath = (req.query.path as string) || process.cwd();
   const status = await gitManager.getStatus(projectPath);
@@ -152,8 +312,11 @@ app.get('/api/git/worktrees', (req, res) => {
   res.json(worktreeManager.listWorktrees());
 });
 
-// Start Server on port 4000
-const PORT = 4000;
-server.listen(PORT, () => {
-  console.log(`[Dark Mode Studio Desktop Engine] Listening on http://localhost:${PORT}`);
+// Configurable Port (Defaults to 8998)
+const portArgIndex = process.argv.indexOf('--port');
+const cliPort = portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : undefined;
+const PORT = cliPort || (process.env.PORT ? parseInt(process.env.PORT, 10) : 8998);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Dark Mode Studio Desktop Engine] Listening on http://0.0.0.0:${PORT} (Pairing Port: ${PORT})`);
 });

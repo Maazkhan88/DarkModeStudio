@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -59,6 +60,7 @@ import com.darkmodestudio.commandcenter.core.security.SecureProvider
 @Composable
 fun ConnectServiceSheet(
     initialProviderId: String? = null,
+    errorMessage: String? = null,
     onDismissRequest: () -> Unit,
     onLaunchOAuth: ((providerId: String) -> Unit)? = null,
     onLaunchDesktopPairing: (() -> Unit)? = null,
@@ -67,13 +69,13 @@ fun ConnectServiceSheet(
     val allProviders = remember { ProviderRegistry.getProviders() }
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(ProviderCategory.ALL) }
-    var selectedProvider by remember {
+    var selectedProvider by remember(initialProviderId) {
         mutableStateOf(allProviders.find { it.id == initialProviderId } ?: allProviders.first())
     }
 
     var isAdvancedTokenMode by remember { mutableStateOf(false) }
     var tokenInput by remember { mutableStateOf("") }
-    var aliasInput by remember { mutableStateOf("${selectedProvider.displayName} Token") }
+    var aliasInput by remember(selectedProvider) { mutableStateOf("${selectedProvider.displayName} Token") }
 
     val filteredProviders = remember(searchQuery, selectedCategory) {
         val byCat = ProviderRegistry.getProvidersByCategory(selectedCategory)
@@ -133,6 +135,32 @@ fun ConnectServiceSheet(
                             isAdvancedTokenMode = false
                         }
                     )
+                }
+            }
+
+            // Error Notice Banner
+            if (!errorMessage.isNullOrBlank()) {
+                DmsCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = DmsRadii.ShapeR12,
+                    backgroundColor = DmsColors.Surface02,
+                    padding = 10.dp
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.WarningAmber,
+                            contentDescription = null,
+                            tint = DmsColors.White80,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = errorMessage,
+                            style = DmsTheme.typography.caption.copy(fontSize = 10.5.sp, color = DmsColors.White92)
+                        )
+                    }
                 }
             }
 
@@ -246,20 +274,45 @@ fun ConnectServiceSheet(
                         text = selectedProvider.recommendedActionLabel,
                         onClick = {
                             onLaunchDesktopPairing?.invoke()
-                            onDismissRequest()
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else if (selectedProvider.authMethods.contains(AuthMethod.OAuthPkce) || selectedProvider.authMethods.contains(AuthMethod.OAuthBackend)) {
-                    // Official OAuth Flow
-                    DmsPrimaryButton(
-                        text = selectedProvider.recommendedActionLabel,
-                        onClick = {
-                            onLaunchOAuth?.invoke(selectedProvider.id)
-                            onDismissRequest()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (selectedProvider.isOAuthConfigured) {
+                        // Official Configured OAuth Flow (e.g. GitHub)
+                        DmsPrimaryButton(
+                            text = selectedProvider.recommendedActionLabel,
+                            onClick = {
+                                onLaunchOAuth?.invoke(selectedProvider.id)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        // Truthful OAuth Setup Guidance
+                        DmsCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = DmsRadii.ShapeR12,
+                            backgroundColor = DmsColors.Surface02,
+                            padding = 10.dp
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "OAuth Setup Required",
+                                    style = DmsTheme.typography.label.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                )
+                                Text(
+                                    text = "OAuth client ID for ${selectedProvider.displayName} is not configured. See ${selectedProvider.externalSetupDoc ?: "docs/connect-auth-provider-setup.md"} or use Personal Access Token below.",
+                                    style = DmsTheme.typography.caption.copy(fontSize = 10.sp, color = DmsColors.White64)
+                                )
+                            }
+                        }
+
+                        DmsSecondaryButton(
+                            text = "Configure API Token in Advanced Mode",
+                            onClick = { isAdvancedTokenMode = true },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
 
@@ -329,7 +382,7 @@ fun ConnectServiceSheet(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Dark Mode Studio never collects service passwords. All secrets are stored in on-device Android Keystore with AES-GCM encryption.",
+                        text = "Dark Mode Studio never collects service passwords. All secrets are stored in on-device Android Keystore with AES-256-GCM encryption.",
                         style = DmsTheme.typography.caption.copy(fontSize = 9.5.sp, color = DmsColors.White48)
                     )
                 }

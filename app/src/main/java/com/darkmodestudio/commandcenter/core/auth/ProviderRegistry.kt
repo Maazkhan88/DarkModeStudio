@@ -65,6 +65,8 @@ data class ProviderDefinition(
     val capabilities: Set<ProviderCapability>,
     val connectorAvailable: Boolean = true,
     val runtimeRequired: Boolean = false,
+    val isOAuthConfigured: Boolean = false,
+    val oauthConfig: OAuthProviderConfig? = null,
     val description: String,
     val recommendedActionLabel: String,
     val externalSetupDoc: String? = null
@@ -81,6 +83,16 @@ object ProviderRegistry {
             iconTag = "GH",
             authMethods = listOf(AuthMethod.OAuthPkce, AuthMethod.ApiToken),
             capabilities = setOf(ProviderCapability.CODE_SYNC, ProviderCapability.CI_WORKFLOWS, ProviderCapability.READ_TELEMETRY),
+            isOAuthConfigured = true,
+            oauthConfig = OAuthProviderConfig(
+                providerId = "github",
+                clientId = "Ov23liauTz93Q0f3v9g5",
+                authorizationEndpoint = "https://github.com/login/oauth/authorize",
+                tokenEndpoint = "https://github.com/login/oauth/access_token",
+                redirectUri = "darkmodestudio://oauth/callback",
+                scopes = listOf("repo", "read:org", "workflow", "user:email"),
+                supportsPkce = true
+            ),
             description = "Repositories, live commit streaming, workflows, and PR telemetry.",
             recommendedActionLabel = "Sign in with GitHub",
             externalSetupDoc = "docs/connect-auth-provider-setup.md#github"
@@ -94,6 +106,7 @@ object ProviderRegistry {
             iconTag = "CF",
             authMethods = listOf(AuthMethod.OAuthPkce, AuthMethod.ApiToken),
             capabilities = setOf(ProviderCapability.DEPLOYMENTS, ProviderCapability.READ_TELEMETRY),
+            isOAuthConfigured = false,
             description = "Edge networks, DNS zones, and Workers deployments.",
             recommendedActionLabel = "Sign in with Cloudflare",
             externalSetupDoc = "docs/connect-auth-provider-setup.md#cloudflare"
@@ -105,6 +118,7 @@ object ProviderRegistry {
             iconTag = "VR",
             authMethods = listOf(AuthMethod.OAuthBackend, AuthMethod.ApiToken),
             capabilities = setOf(ProviderCapability.DEPLOYMENTS, ProviderCapability.READ_TELEMETRY),
+            isOAuthConfigured = false,
             description = "Frontend hosting, instant preview deployments, and edge network metrics.",
             recommendedActionLabel = "Sign in with Vercel",
             externalSetupDoc = "docs/connect-auth-provider-setup.md#vercel"
@@ -116,6 +130,7 @@ object ProviderRegistry {
             iconTag = "FB",
             authMethods = listOf(AuthMethod.OAuthPkce, AuthMethod.ServiceAccount),
             capabilities = setOf(ProviderCapability.DEPLOYMENTS, ProviderCapability.READ_TELEMETRY),
+            isOAuthConfigured = false,
             description = "Google Cloud projects, Firebase mobile telemetry, and Crashlytics.",
             recommendedActionLabel = "Sign in with Google",
             externalSetupDoc = "docs/connect-auth-provider-setup.md#firebase--google-cloud"
@@ -129,6 +144,7 @@ object ProviderRegistry {
             iconTag = "SB",
             authMethods = listOf(AuthMethod.OAuthPkce, AuthMethod.ApiToken),
             capabilities = setOf(ProviderCapability.DATABASE_MGMT, ProviderCapability.READ_TELEMETRY),
+            isOAuthConfigured = false,
             description = "Postgres databases, REST APIs, and authentication services.",
             recommendedActionLabel = "Sign in with Supabase",
             externalSetupDoc = "docs/connect-auth-provider-setup.md#supabase"

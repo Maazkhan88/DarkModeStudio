@@ -197,6 +197,16 @@ interface IntegrationDao {
     @Update
     suspend fun updateIntegration(integration: IntegrationEntity)
 
+    @Transaction
+    suspend fun upsertIntegrationNonDestructively(integration: IntegrationEntity) {
+        val existing = getIntegrationById(integration.id)
+        if (existing == null) {
+            insertIntegration(integration)
+        } else {
+            updateIntegration(integration)
+        }
+    }
+
     @Query("SELECT COUNT(*) FROM integration_metrics WHERE integrationId = :integrationId")
     suspend fun getMetricCount(integrationId: String): Int
 
@@ -325,6 +335,12 @@ interface ProviderConnectionDao {
 interface DesktopHostDao {
     @Query("SELECT * FROM desktop_hosts")
     fun getHostsFlow(): Flow<List<DesktopHostEntity>>
+
+    @Query("SELECT * FROM desktop_hosts")
+    suspend fun getAllHosts(): List<DesktopHostEntity>
+
+    @Query("SELECT * FROM desktop_hosts WHERE hostId = :hostId LIMIT 1")
+    fun getHostFlow(hostId: String): Flow<DesktopHostEntity?>
 
     @Query("SELECT * FROM desktop_hosts WHERE hostId = :hostId LIMIT 1")
     suspend fun getHost(hostId: String): DesktopHostEntity?

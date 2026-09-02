@@ -1,4 +1,4 @@
-name: Android Verification CI
+name: Android & Desktop Verification CI
 
 on:
   push:
@@ -13,6 +13,20 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js for Desktop Engine
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Verify Desktop Engine Tests and Build
+        run: |
+          cd desktop
+          npm ci
+          npm test
+          npm run build
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

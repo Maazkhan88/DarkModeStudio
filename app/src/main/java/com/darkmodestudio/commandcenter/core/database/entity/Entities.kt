@@ -300,7 +300,7 @@ data class AppSettingsEntity(
     val taskDeadlines: Boolean = true,
     val agentLimitWarnings: Boolean = true,
     val platformIncidents: Boolean = true,
-    val schemaSeedVersion: Int = 6
+    val schemaSeedVersion: Int = 7
 )
 
 @Entity(
@@ -343,6 +343,6 @@ data class DesktopHostEntity(
     val hostAddress: String,
     val isOnline: Boolean = false,
     val lastSeen: String = "",
-    val authToken: String? = null,
-    val availableAgents: String = ""
+    val availableAgents: String = "",
+    val credentialAlias: String? = null
 )

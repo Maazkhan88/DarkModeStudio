@@ -193,6 +193,29 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `desktop_hosts_new` (
+                `hostId` TEXT NOT NULL,
+                `hostName` TEXT NOT NULL,
+                `hostAddress` TEXT NOT NULL,
+                `isOnline` INTEGER NOT NULL,
+                `lastSeen` TEXT NOT NULL,
+                `availableAgents` TEXT NOT NULL,
+                `credentialAlias` TEXT,
+                PRIMARY KEY(`hostId`)
+            )
+        """.trimIndent())
+        db.execSQL("""
+            INSERT INTO `desktop_hosts_new` (`hostId`, `hostName`, `hostAddress`, `isOnline`, `lastSeen`, `availableAgents`, `credentialAlias`)
+            SELECT `hostId`, `hostName`, `hostAddress`, `isOnline`, `lastSeen`, `availableAgents`, NULL FROM `desktop_hosts`
+        """.trimIndent())
+        db.execSQL("DROP TABLE IF EXISTS `desktop_hosts`")
+        db.execSQL("ALTER TABLE `desktop_hosts_new` RENAME TO `desktop_hosts`")
+    }
+}
+
 @Database(
     entities = [
         ProjectEntity::class,
@@ -215,7 +238,7 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         ProviderConnectionEntity::class,
         DesktopHostEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -249,7 +272,7 @@ abstract class DmsDatabase : RoomDatabase() {
                     DmsDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
 
                 INSTANCE = instance

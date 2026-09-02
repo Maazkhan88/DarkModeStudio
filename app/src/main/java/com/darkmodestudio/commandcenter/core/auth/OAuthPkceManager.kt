@@ -8,10 +8,17 @@ import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
 import com.darkmodestudio.commandcenter.core.util.DmsTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 data class OAuthProviderConfig(
     val providerId: String,
@@ -51,9 +58,14 @@ data class ProviderAccountIdentity(
 
 class OAuthPkceManager(
     private val database: DmsDatabase,
-    private val keystoreManager: KeystoreCredentialManager
+    private val keystoreManager: KeystoreCredentialManager,
+    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 ) {
     private val secureRandom = SecureRandom()
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     fun generateCodeVerifier(): String {
         val bytes = ByteArray(48)
@@ -123,6 +135,113 @@ class OAuthPkceManager(
             expectedState.toByteArray(StandardCharsets.UTF_8),
             returnedState.toByteArray(StandardCharsets.UTF_8)
         )
+    }
+
+    suspend fun exchangeCodeForToken(
+        config: OAuthProviderConfig,
+        code: String,
+        codeVerifier: String
+    ): OAuthTokenResponse = withContext(Dispatchers.IO) {
+        try {
+            val formBuilder = FormBody.Builder()
+                .add("client_id", config.clientId)
+                .add("code", code)
+                .add("redirect_uri", config.redirectUri)
+                .add("grant_type", "authorization_code")
+
+            if (config.supportsPkce) {
+                formBuilder.add("code_verifier", codeVerifier)
+            }
+
+            val request = Request.Builder()
+                .url(config.tokenEndpoint)
+                .header("Accept", "application/json")
+                .header("User-Agent", "DarkModeStudio-CommandCenter")
+                .post(formBuilder.build())
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                val bodyStr = response.body?.string() ?: "{}"
+                if (response.isSuccessful) {
+                    val root = json.parseToJsonElement(bodyStr).jsonObject
+                    val accessToken = root["access_token"]?.jsonPrimitive?.content
+                    val refreshToken = root["refresh_token"]?.jsonPrimitive?.content
+                    val error = root["error"]?.jsonPrimitive?.content
+                    val errorDesc = root["error_description"]?.jsonPrimitive?.content
+
+                    if (!error.isNullOrBlank() || accessToken.isNullOrBlank()) {
+                        OAuthTokenResponse(
+                            isSuccess = false,
+                            errorMessage = errorDesc ?: error ?: "Failed to receive access token"
+                        )
+                    } else {
+                        val expiresIn = root["expires_in"]?.jsonPrimitive?.content?.toLongOrNull()
+                        val scope = root["scope"]?.jsonPrimitive?.content
+                        val tokenType = root["token_type"]?.jsonPrimitive?.content
+                        OAuthTokenResponse(
+                            isSuccess = true,
+                            accessToken = accessToken,
+                            refreshToken = refreshToken,
+                            expiresInSeconds = expiresIn,
+                            scope = scope,
+                            tokenType = tokenType
+                        )
+                    }
+                } else {
+                    OAuthTokenResponse(
+                        isSuccess = false,
+                        errorMessage = "HTTP ${response.code}: ${response.message.ifBlank { "Token endpoint error" }}"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            OAuthTokenResponse(
+                isSuccess = false,
+                errorMessage = e.localizedMessage ?: "Token exchange network error"
+            )
+        }
+    }
+
+    suspend fun fetchAccountIdentity(
+        providerId: String,
+        accessToken: String
+    ): ProviderAccountIdentity = withContext(Dispatchers.IO) {
+        try {
+            if (providerId.equals("github", ignoreCase = true)) {
+                val request = Request.Builder()
+                    .url("https://api.github.com/user")
+                    .header("Authorization", "Bearer $accessToken")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "DarkModeStudio-CommandCenter")
+                    .build()
+
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: "{}"
+                        val root = json.parseToJsonElement(body).jsonObject
+                        val login = root["login"]?.jsonPrimitive?.content
+                        val name = root["name"]?.jsonPrimitive?.content
+                        val id = root["id"]?.jsonPrimitive?.content
+                        val email = root["email"]?.jsonPrimitive?.content
+                        return@withContext ProviderAccountIdentity(
+                            accountId = id,
+                            displayName = login ?: name ?: "GitHub User",
+                            workspaceName = login,
+                            primaryEmail = email
+                        )
+                    }
+                }
+            }
+            ProviderAccountIdentity(
+                accountId = "acct_${System.currentTimeMillis()}",
+                displayName = "Authorized $providerId Account"
+            )
+        } catch (e: Exception) {
+            ProviderAccountIdentity(
+                accountId = "acct_unknown",
+                displayName = "Authorized $providerId Account"
+            )
+        }
     }
 
     suspend fun saveAuthenticatedSession(

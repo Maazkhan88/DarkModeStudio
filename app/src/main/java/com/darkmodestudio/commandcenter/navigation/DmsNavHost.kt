@@ -17,12 +17,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import com.darkmodestudio.commandcenter.core.agent.DesktopHostBridge
+import com.darkmodestudio.commandcenter.core.auth.ConnectAuthCoordinator
+import com.darkmodestudio.commandcenter.core.auth.ConnectAuthState
 import com.darkmodestudio.commandcenter.core.data.repository.AgentRepository
 import com.darkmodestudio.commandcenter.core.data.repository.HealthRepository
 import com.darkmodestudio.commandcenter.core.data.repository.NotificationRepository
@@ -30,6 +34,7 @@ import com.darkmodestudio.commandcenter.core.data.repository.ProjectRepository
 import com.darkmodestudio.commandcenter.core.data.repository.RepositoryFilesRepository
 import com.darkmodestudio.commandcenter.core.data.repository.SettingsRepository
 import com.darkmodestudio.commandcenter.core.data.repository.TaskRepository
+import com.darkmodestudio.commandcenter.core.database.DmsDatabase
 import com.darkmodestudio.commandcenter.core.designsystem.component.DmsBottomNavigation
 import com.darkmodestudio.commandcenter.core.designsystem.theme.DmsColors
 import com.darkmodestudio.commandcenter.core.security.KeystoreCredentialManager
@@ -51,6 +56,7 @@ import com.darkmodestudio.commandcenter.feature.sheets.CreateReminderSheet
 import com.darkmodestudio.commandcenter.feature.sheets.CreateTaskSheet
 import com.darkmodestudio.commandcenter.feature.sheets.GlobalActionSheet
 import com.darkmodestudio.commandcenter.feature.sheets.ManageAgentsSheet
+import com.darkmodestudio.commandcenter.feature.sheets.PairDesktopHostSheet
 import com.darkmodestudio.commandcenter.feature.updates.UpdatesScreen
 import kotlinx.coroutines.launch
 
@@ -66,13 +72,26 @@ fun DmsNavHost(
     repositoryFilesRepository: RepositoryFilesRepository? = null,
     keystoreCredentialManager: KeystoreCredentialManager,
     syncCoordinator: SyncCoordinator,
+    connectAuthCoordinator: ConnectAuthCoordinator? = null,
+    desktopHostBridge: DesktopHostBridge? = null,
+    database: DmsDatabase? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Home.route
 
-    // Sheet visibility states
+    // Ensure database, coordinator, and bridge instances
+    val db = database ?: remember { DmsDatabase.getInstance(context) }
+    val authCoordinator = connectAuthCoordinator ?: remember {
+        ConnectAuthCoordinator(db, keystoreCredentialManager, syncCoordinator = syncCoordinator)
+    }
+    val hostBridge = desktopHostBridge ?: remember {
+        DesktopHostBridge(db, keystoreCredentialManager)
+    }
+
+    // Sheet visibility states & provider preservation
     var showGlobalActionSheet by remember { mutableStateOf(false) }
     var showCreateTaskSheet by remember { mutableStateOf(false) }
     var showCreateProjectSheet by remember { mutableStateOf(false) }
@@ -80,8 +99,11 @@ fun DmsNavHost(
     var showConnectServiceSheet by remember { mutableStateOf(false) }
     var showCreateAutomationSheet by remember { mutableStateOf(false) }
     var showManageAgentsSheet by remember { mutableStateOf(false) }
+    var showDesktopPairingSheet by remember { mutableStateOf(false) }
+    var selectedConnectProviderId by remember { mutableStateOf<String?>(null) }
 
     val agentsList by agentRepository.agents.collectAsState(initial = emptyList())
+    val activeHost by db.desktopHostDao().getHostFlow("primary_desktop").collectAsState(initial = null)
 
     val showBottomBar = currentRoute in listOf(
         Screen.Home.route,
@@ -153,7 +175,10 @@ fun DmsNavHost(
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
                     },
-                    onConnectServiceClick = { showConnectServiceSheet = true }
+                    onConnectServiceClick = { providerId ->
+                        selectedConnectProviderId = providerId
+                        showConnectServiceSheet = true
+                    }
                 )
             }
 
@@ -180,7 +205,10 @@ fun DmsNavHost(
                     projectRepository = projectRepository,
                     taskRepository = taskRepository,
                     repositoryFilesRepository = repositoryFilesRepository,
-                    onConnectGitHubClick = { showConnectServiceSheet = true },
+                    onConnectGitHubClick = {
+                        selectedConnectProviderId = "github"
+                        showConnectServiceSheet = true
+                    },
                     onBackClick = { navController.popBackStack() },
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
                     onAvatarClick = { navController.navigate(Screen.Settings.route) }
@@ -203,7 +231,10 @@ fun DmsNavHost(
                     healthRepository = healthRepository,
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
                     onAvatarClick = { navController.navigate(Screen.Settings.route) },
-                    onConnectServiceClick = { showConnectServiceSheet = true },
+                    onConnectServiceClick = {
+                        selectedConnectProviderId = null
+                        showConnectServiceSheet = true
+                    },
                     onSyncNowClick = {
                         coroutineScope.launch {
                             syncCoordinator.syncAll(SyncMode.MANUAL)
@@ -236,7 +267,10 @@ fun DmsNavHost(
                     settingsRepository = settingsRepository,
                     onBackClick = { navController.popBackStack() },
                     onManageAutomationsClick = { showCreateAutomationSheet = true },
-                    onConnectServiceClick = { showConnectServiceSheet = true }
+                    onConnectServiceClick = {
+                        selectedConnectProviderId = null
+                        showConnectServiceSheet = true
+                    }
                 )
             }
         }
@@ -270,7 +304,10 @@ fun DmsNavHost(
                         ActionType.NEW_TASK -> showCreateTaskSheet = true
                         ActionType.NEW_PROJECT -> showCreateProjectSheet = true
                         ActionType.NEW_REMINDER -> showCreateReminderSheet = true
-                        ActionType.CONNECT_SERVICE -> showConnectServiceSheet = true
+                        ActionType.CONNECT_SERVICE -> {
+                            selectedConnectProviderId = null
+                            showConnectServiceSheet = true
+                        }
                         ActionType.NEW_AUTOMATION -> showCreateAutomationSheet = true
                     }
                 }
@@ -281,8 +318,27 @@ fun DmsNavHost(
         if (showManageAgentsSheet) {
             ManageAgentsSheet(
                 agents = agentsList,
+                isHostOnline = activeHost?.isOnline ?: false,
+                pairedHostName = activeHost?.hostName,
                 onDismiss = { showManageAgentsSheet = false },
                 onRefreshQuotas = {
+                    coroutineScope.launch {
+                        syncCoordinator.syncAll(SyncMode.MANUAL)
+                    }
+                },
+                onPairDesktopHost = {
+                    showManageAgentsSheet = false
+                    showDesktopPairingSheet = true
+                }
+            )
+        }
+
+        // Desktop Host Pairing Sheet
+        if (showDesktopPairingSheet) {
+            PairDesktopHostSheet(
+                desktopHostBridge = hostBridge,
+                onDismiss = { showDesktopPairingSheet = false },
+                onPairSuccess = { hostName ->
                     coroutineScope.launch {
                         syncCoordinator.syncAll(SyncMode.MANUAL)
                     }
@@ -325,8 +381,24 @@ fun DmsNavHost(
         }
 
         if (showConnectServiceSheet) {
+            val authState by authCoordinator.authState.collectAsState()
+            val errorMsg = (authState as? ConnectAuthState.Error)?.message
+
             ConnectServiceSheet(
-                onDismissRequest = { showConnectServiceSheet = false },
+                initialProviderId = selectedConnectProviderId,
+                errorMessage = errorMsg,
+                onDismissRequest = {
+                    showConnectServiceSheet = false
+                    selectedConnectProviderId = null
+                    authCoordinator.clearError()
+                },
+                onLaunchOAuth = { providerId ->
+                    authCoordinator.startOAuthFlow(context, providerId)
+                },
+                onLaunchDesktopPairing = {
+                    showConnectServiceSheet = false
+                    showDesktopPairingSheet = true
+                },
                 onSaveTokenFallback = { provider, token, alias ->
                     coroutineScope.launch {
                         val key = "token_" + provider.name.lowercase()

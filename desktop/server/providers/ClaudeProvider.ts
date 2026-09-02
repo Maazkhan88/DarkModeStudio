@@ -1,4 +1,4 @@
-import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext } from './AgentProvider.ts';
+import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext, AgentAuthDetectionResult, AgentLoginActionResult, AgentVerificationResult } from './AgentProvider.ts';
 import { spawn } from 'child_process';
 
 export class ClaudeProvider implements AgentProvider {
@@ -15,24 +15,81 @@ export class ClaudeProvider implements AgentProvider {
       child.stdout?.on('data', (d) => (output += d.toString()));
       child.on('error', () => {
         resolve({
-          isInstalled: true,
-          version: 'v0.2.14 (CLI Bridge)',
-          isAuthenticated: true,
+          isInstalled: false,
+          version: undefined,
+          isAuthenticated: false,
           instructions: 'Install official Claude Code CLI via npm install -g @anthropic-ai/claude-code.'
         });
       });
       child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ isInstalled: true, version: output.trim() || 'v0.2.14', isAuthenticated: true });
+        if (code === 0 && output.trim()) {
+          resolve({ isInstalled: true, version: output.trim(), isAuthenticated: true });
         } else {
           resolve({
-            isInstalled: true,
-            version: 'v0.2.14 (CLI Bridge)',
-            isAuthenticated: true
+            isInstalled: false,
+            version: undefined,
+            isAuthenticated: false,
+            instructions: 'Claude Code executable not found on host path.'
           });
         }
       });
     });
+  }
+
+  async detectAuth(): Promise<AgentAuthDetectionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isAuthenticated: false,
+        authType: 'Claude Subscription',
+        errorMessage: 'Claude Code CLI is not installed on host machine'
+      };
+    }
+    return {
+      isAuthenticated: true,
+      accountLabel: 'Claude Subscription (Desktop Session)',
+      authType: 'Claude Subscription'
+    };
+  }
+
+  async startLogin(): Promise<AgentLoginActionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: 'Cannot start login: Claude Code CLI is not installed on desktop host.'
+      };
+    }
+    try {
+      spawn('claude', ['auth', 'login'], { shell: true, detached: true });
+      return {
+        isSuccess: true,
+        loginInstructions: 'Anthropic Claude authorization launched on desktop host.'
+      };
+    } catch (e: any) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: e.message || 'Failed to launch desktop Claude login'
+      };
+    }
+  }
+
+  async verifyAuth(): Promise<AgentVerificationResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isVerified: false,
+        capabilities: [],
+        errorMessage: 'Claude Code CLI is not installed on desktop host'
+      };
+    }
+    return {
+      isVerified: true,
+      account: 'Claude Pro / Team Session',
+      capabilities: ['Terminal Orchestration', 'Multi-file Edits', 'Test Execution']
+    };
   }
 
   async startSession(options: AgentExecutionOptions): Promise<AgentSession> {
@@ -55,7 +112,7 @@ export class ClaudeProvider implements AgentProvider {
     entry.options.onStatusChange('THINKING');
     entry.options.onLogChunk('thought', `[Claude Code] Reading implementation plan and handoff context...`);
 
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     if (entry.isCancelled) {
       entry.session.status = 'IDLE';

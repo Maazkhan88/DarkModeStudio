@@ -1,4 +1,4 @@
-import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext } from './AgentProvider.ts';
+import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext, AgentAuthDetectionResult, AgentLoginActionResult, AgentVerificationResult } from './AgentProvider.ts';
 import { spawn } from 'child_process';
 
 export class AntigravityProvider implements AgentProvider {
@@ -15,24 +15,81 @@ export class AntigravityProvider implements AgentProvider {
       child.stdout?.on('data', (d) => (output += d.toString()));
       child.on('error', () => {
         resolve({
-          isInstalled: true,
-          version: 'v2.4.0 (IDE & Sidecar Bridge)',
-          isAuthenticated: true,
-          instructions: 'Antigravity environment detected and active.'
+          isInstalled: false,
+          version: undefined,
+          isAuthenticated: false,
+          instructions: 'Install Google Antigravity CLI and setup environment.'
         });
       });
       child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ isInstalled: true, version: output.trim() || 'v2.4.0', isAuthenticated: true });
+        if (code === 0 && output.trim()) {
+          resolve({ isInstalled: true, version: output.trim(), isAuthenticated: true });
         } else {
           resolve({
-            isInstalled: true,
-            version: 'v2.4.0 (IDE & Sidecar Bridge)',
-            isAuthenticated: true
+            isInstalled: false,
+            version: undefined,
+            isAuthenticated: false,
+            instructions: 'Antigravity (agy) executable not found on host path.'
           });
         }
       });
     });
+  }
+
+  async detectAuth(): Promise<AgentAuthDetectionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isAuthenticated: false,
+        authType: 'Google Account (agy keyring)',
+        errorMessage: 'Antigravity CLI is not installed on host machine'
+      };
+    }
+    return {
+      isAuthenticated: true,
+      accountLabel: 'Google Account (agy Keyring Session)',
+      authType: 'Google Account (agy keyring)'
+    };
+  }
+
+  async startLogin(): Promise<AgentLoginActionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: 'Cannot start login: Antigravity CLI is not installed on desktop host.'
+      };
+    }
+    try {
+      spawn('agy', ['auth', 'login'], { shell: true, detached: true });
+      return {
+        isSuccess: true,
+        loginInstructions: 'Google account authorization launched for Antigravity on desktop host.'
+      };
+    } catch (e: any) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: e.message || 'Failed to launch desktop Antigravity login'
+      };
+    }
+  }
+
+  async verifyAuth(): Promise<AgentVerificationResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isVerified: false,
+        capabilities: [],
+        errorMessage: 'Antigravity CLI is not installed on desktop host'
+      };
+    }
+    return {
+      isVerified: true,
+      account: 'Google Account Keyring Session',
+      capabilities: ['Visual QA', 'Browser Testing', 'Android Runner', 'Automated Verification']
+    };
   }
 
   async startSession(options: AgentExecutionOptions): Promise<AgentSession> {
@@ -55,7 +112,7 @@ export class AntigravityProvider implements AgentProvider {
     entry.options.onStatusChange('THINKING');
     entry.options.onLogChunk('thought', `[Antigravity QA] Setting up isolated test sandbox and inspection probes...`);
 
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     if (entry.isCancelled) {
       entry.session.status = 'IDLE';

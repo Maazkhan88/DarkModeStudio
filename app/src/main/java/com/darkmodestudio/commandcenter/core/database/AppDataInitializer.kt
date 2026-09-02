@@ -27,7 +27,7 @@ class AppDataInitializer(
             // 1. App Settings (insert-only)
             val settings = database.settingsDao().getSettings()
             if (settings == null) {
-                database.settingsDao().insertOrUpdate(AppSettingsEntity(schemaSeedVersion = 6))
+                database.settingsDao().insertOrUpdate(AppSettingsEntity(schemaSeedVersion = 7))
             }
 
             // 2. Structural Default Integrations (Disconnected by default, insert-only)

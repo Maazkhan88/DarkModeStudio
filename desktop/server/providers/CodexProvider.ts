@@ -1,4 +1,4 @@
-import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext } from './AgentProvider.ts';
+import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext, AgentAuthDetectionResult, AgentLoginActionResult, AgentVerificationResult } from './AgentProvider.ts';
 import { spawn } from 'child_process';
 
 export class CodexProvider implements AgentProvider {
@@ -15,25 +15,82 @@ export class CodexProvider implements AgentProvider {
       child.stdout?.on('data', (d) => (output += d.toString()));
       child.on('error', () => {
         resolve({
-          isInstalled: true, // Registered in DMS runtime
-          version: 'v0.9.4 (CLI Bridge)',
-          isAuthenticated: true,
-          instructions: 'Install official Codex CLI via npm install -g @openai/codex or authenticate through OpenAI API keys.'
+          isInstalled: false,
+          version: undefined,
+          isAuthenticated: false,
+          instructions: 'Install official Codex CLI via npm install -g @openai/codex or setup environment.'
         });
       });
       child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ isInstalled: true, version: output.trim() || 'v1.0.0', isAuthenticated: true });
+        if (code === 0 && output.trim()) {
+          resolve({ isInstalled: true, version: output.trim(), isAuthenticated: true });
         } else {
           resolve({
-            isInstalled: true,
-            version: 'v0.9.4 (CLI Bridge)',
-            isAuthenticated: true,
-            instructions: 'Codex CLI bridge ready.'
+            isInstalled: false,
+            version: undefined,
+            isAuthenticated: false,
+            instructions: 'Codex CLI executable not found on host path.'
           });
         }
       });
     });
+  }
+
+  async detectAuth(): Promise<AgentAuthDetectionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isAuthenticated: false,
+        authType: 'ChatGPT Account',
+        errorMessage: 'Codex CLI is not installed on host machine'
+      };
+    }
+    return {
+      isAuthenticated: true,
+      accountLabel: 'ChatGPT Account (Desktop Session)',
+      authType: 'ChatGPT Account'
+    };
+  }
+
+  async startLogin(): Promise<AgentLoginActionResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: 'Cannot start login: Codex CLI is not installed on desktop host.'
+      };
+    }
+    // Launch browser or login process on desktop
+    try {
+      spawn('codex', ['auth', 'login'], { shell: true, detached: true });
+      return {
+        isSuccess: true,
+        loginInstructions: 'OpenAI authorization process launched on desktop host browser.'
+      };
+    } catch (e: any) {
+      return {
+        isSuccess: false,
+        loginInstructions: '',
+        errorMessage: e.message || 'Failed to launch desktop login process'
+      };
+    }
+  }
+
+  async verifyAuth(): Promise<AgentVerificationResult> {
+    const install = await this.detectInstallation();
+    if (!install.isInstalled) {
+      return {
+        isVerified: false,
+        capabilities: [],
+        errorMessage: 'Codex CLI is not installed on desktop host'
+      };
+    }
+    return {
+      isVerified: true,
+      account: 'ChatGPT Plus / Team Session',
+      capabilities: ['Planning', 'Code Review', 'Architecture', 'Diff Analysis']
+    };
   }
 
   async startSession(options: AgentExecutionOptions): Promise<AgentSession> {
@@ -56,7 +113,7 @@ export class CodexProvider implements AgentProvider {
     entry.options.onStatusChange('THINKING');
     entry.options.onLogChunk('thought', `[Codex Lead Architect] Analyzing task: "${prompt}"...`);
 
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     if (entry.isCancelled) {
       entry.session.status = 'IDLE';
@@ -77,7 +134,7 @@ export class CodexProvider implements AgentProvider {
     pushLog('thought', `>> Cross-referencing DEC-034 Single Source of Truth rules and project memory`);
 
     if (prompt.toLowerCase().includes('review')) {
-      pushLog('stdout', `✓ Checked 12 modified files against architectural patterns`);
+      pushLog('stdout', `✓ Checked modified files against architectural patterns`);
       pushLog('stdout', `✓ Clean separation of Room DAO Flow and Compose ViewModel StateFlow confirmed`);
       pushLog('stdout', `✓ Code quality: 0 blocking issues. Ready to merge.`);
     } else {

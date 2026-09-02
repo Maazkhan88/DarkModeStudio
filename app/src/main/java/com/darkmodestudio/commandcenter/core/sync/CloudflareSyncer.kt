@@ -35,7 +35,7 @@ class CloudflareSyncer(
                 lastError = null,
                 primaryMetric = "Disconnected — Tap to configure"
             )
-            database.integrationDao().insertIntegration(disconnected)
+            database.integrationDao().upsertIntegrationNonDestructively(disconnected)
 
             return@withContext ProviderSyncResult(
                 provider = SecureProvider.CLOUDFLARE,
@@ -56,7 +56,7 @@ class CloudflareSyncer(
                 lastError = "Failed to fetch Cloudflare telemetry",
                 primaryMetric = "Sync Failure — Verify Token"
             )
-            database.integrationDao().insertIntegration(failedIntegration)
+            database.integrationDao().upsertIntegrationNonDestructively(failedIntegration)
 
             return@withContext ProviderSyncResult(
                 provider = SecureProvider.CLOUDFLARE,
@@ -75,7 +75,7 @@ class CloudflareSyncer(
             lastSuccessfulSync = nowFormatted,
             primaryMetric = "${result.totalRequestsLast24h} req • ${result.errorRate} err"
         )
-        database.integrationDao().insertIntegration(integration)
+        database.integrationDao().upsertIntegrationNonDestructively(integration)
 
         val metrics = listOf(
             IntegrationMetricEntity(integrationId = "cloudflare", label = "Daily Requests", value = result.totalRequestsLast24h),
