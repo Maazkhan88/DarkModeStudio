@@ -1,24 +1,27 @@
 import { AgentProvider, AgentCapabilities, AgentExecutionOptions, AgentRunResult, AgentSession, AgentStatus, ProjectHandoffContext, AgentAuthDetectionResult, AgentLoginActionResult, AgentVerificationResult } from './AgentProvider.ts';
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 export class CodexProvider implements AgentProvider {
   id = 'codex';
   name = 'Codex';
   role = 'Lead Architect & Code Reviewer';
 
-  private activeSessions = new Map<string, { session: AgentSession; options: AgentExecutionOptions; isCancelled: boolean }>();
+  private activeSessions = new Map<string, { session: AgentSession; options: AgentExecutionOptions; isCancelled: boolean; process?: ChildProcess }>();
 
   async detectInstallation(): Promise<{ isInstalled: boolean; version?: string; isAuthenticated: boolean; instructions?: string }> {
     return new Promise((resolve) => {
       const child = spawn('codex', ['--version'], { shell: true });
       let output = '';
       child.stdout?.on('data', (d) => (output += d.toString()));
+      child.stderr?.on('data', (d) => (output += d.toString()));
       child.on('error', () => {
         resolve({
           isInstalled: false,
           version: undefined,
           isAuthenticated: false,
-          instructions: 'Install official Codex CLI via npm install -g @openai/codex or setup environment.'
+          instructions: 'Install official Codex CLI or add to system PATH.'
         });
       });
       child.on('close', (code) => {
@@ -45,6 +48,25 @@ export class CodexProvider implements AgentProvider {
         errorMessage: 'Codex CLI is not installed on host machine'
       };
     }
+
+    // Inspect user's Codex auth configuration
+    const userHome = process.env.USERPROFILE || process.env.HOME || '';
+    const authFile = path.join(userHome, '.codex', 'auth.json');
+    if (fs.existsSync(authFile)) {
+      try {
+        const authData = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+        if (authData.tokens || authData.auth_mode === 'chatgpt') {
+          return {
+            isAuthenticated: true,
+            accountLabel: 'ChatGPT Account (Active Desktop Session)',
+            authType: 'ChatGPT Account'
+          };
+        }
+      } catch {
+        // Fallback to doctor/version check
+      }
+    }
+
     return {
       isAuthenticated: true,
       accountLabel: 'ChatGPT Account (Desktop Session)',
@@ -61,9 +83,8 @@ export class CodexProvider implements AgentProvider {
         errorMessage: 'Cannot start login: Codex CLI is not installed on desktop host.'
       };
     }
-    // Launch browser or login process on desktop
     try {
-      spawn('codex', ['auth', 'login'], { shell: true, detached: true });
+      spawn('codex', ['login'], { shell: true, detached: true });
       return {
         isSuccess: true,
         loginInstructions: 'OpenAI authorization process launched on desktop host browser.'
@@ -89,7 +110,7 @@ export class CodexProvider implements AgentProvider {
     return {
       isVerified: true,
       account: 'ChatGPT Plus / Team Session',
-      capabilities: ['Planning', 'Code Review', 'Architecture', 'Diff Analysis']
+      capabilities: ['Planning', 'Code Review', 'Architecture', 'Diff Analysis', 'Command Execution']
     };
   }
 
@@ -111,9 +132,7 @@ export class CodexProvider implements AgentProvider {
 
     entry.session.status = 'THINKING';
     entry.options.onStatusChange('THINKING');
-    entry.options.onLogChunk('thought', `[Codex Lead Architect] Analyzing task: "${prompt}"...`);
-
-    await new Promise((r) => setTimeout(r, 400));
+    entry.options.onLogChunk('thought', `[Codex] Preparing command execution for prompt: "${prompt}"...`);
 
     if (entry.isCancelled) {
       entry.session.status = 'IDLE';
@@ -130,38 +149,73 @@ export class CodexProvider implements AgentProvider {
       entry.options.onLogChunk(type, text);
     };
 
-    pushLog('stdout', `>> Reading workspace architecture from ${entry.options.workingDirectory}`);
-    pushLog('thought', `>> Cross-referencing DEC-034 Single Source of Truth rules and project memory`);
+    return new Promise((resolve) => {
+      // Spawn codex exec in read-only sandbox with ephemeral state
+      const child = spawn('codex', ['exec', '--ephemeral', '--sandbox', 'read-only', '-'], {
+        shell: true,
+        cwd: entry.options.workingDirectory || process.cwd()
+      });
 
-    if (prompt.toLowerCase().includes('review')) {
-      pushLog('stdout', `✓ Checked modified files against architectural patterns`);
-      pushLog('stdout', `✓ Clean separation of Room DAO Flow and Compose ViewModel StateFlow confirmed`);
-      pushLog('stdout', `✓ Code quality: 0 blocking issues. Ready to merge.`);
-    } else {
-      pushLog('stdout', `>> Generated 4-step implementation plan for developer agents:`);
-      pushLog('stdout', `   1. Architecture & Room DAO Schema Definition (Codex)`);
-      pushLog('stdout', `   2. Compose UI & Timer Lifecycle Implementation (Claude)`);
-      pushLog('stdout', `   3. Automated Unit & Visual Regression Tests (Antigravity)`);
-      pushLog('stdout', `   4. Final Code Review & PR Approval (Codex)`);
-    }
+      entry.process = child;
 
-    entry.session.status = 'COMPLETED';
-    entry.options.onStatusChange('COMPLETED');
+      // Pipe prompt to stdin and close
+      child.stdin?.write(prompt + '\n');
+      child.stdin?.end();
 
-    return {
-      isSuccess: true,
-      exitCode: 0,
-      summary: prompt.toLowerCase().includes('review') ? 'Code review completed with 0 blocking issues.' : 'Architecture plan generated and validated against project rules.',
-      filesModified: ['docs/architecture.md', 'DECISIONS.md'],
-      logs,
-      suggestedNextStep: prompt.toLowerCase().includes('review') ? 'READY_TO_MERGE' : 'Claude Code implementation in isolated worktree'
-    };
+      child.stdout?.on('data', (chunk) => {
+        const text = chunk.toString();
+        pushLog('stdout', text);
+      });
+
+      child.stderr?.on('data', (chunk) => {
+        const text = chunk.toString();
+        pushLog('stderr', text);
+      });
+
+      child.on('error', (err) => {
+        entry.session.status = 'IDLE';
+        entry.options.onStatusChange('IDLE');
+        pushLog('stderr', `[Codex Error] ${err.message}`);
+        resolve({
+          isSuccess: false,
+          exitCode: 1,
+          summary: `Execution failed: ${err.message}`,
+          filesModified: [],
+          logs
+        });
+      });
+
+      child.on('close', (code) => {
+        entry.process = undefined;
+        const isSuccess = code === 0;
+        entry.session.status = isSuccess ? 'COMPLETED' : 'IDLE';
+        entry.options.onStatusChange(entry.session.status);
+
+        const summary = logs.filter((l) => l.trim().length > 0).pop() || (isSuccess ? 'Completed successfully' : 'Failed with exit code ' + code);
+
+        resolve({
+          isSuccess,
+          exitCode: code || 0,
+          summary: summary.trim(),
+          filesModified: [],
+          logs,
+          suggestedNextStep: isSuccess ? 'Ready for next task' : undefined
+        });
+      });
+    });
   }
 
   async cancelSession(sessionId: string): Promise<void> {
     const entry = this.activeSessions.get(sessionId);
     if (entry) {
       entry.isCancelled = true;
+      if (entry.process) {
+        try {
+          entry.process.kill('SIGTERM');
+        } catch {
+          // Process might already be closed
+        }
+      }
       entry.session.status = 'IDLE';
       entry.options.onStatusChange('IDLE');
       entry.options.onLogChunk('stderr', '[Codex] Session cancelled by user.');

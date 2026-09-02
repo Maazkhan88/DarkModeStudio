@@ -52,8 +52,8 @@ fun PairDesktopHostSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
-    var hostAddressInput by remember { mutableStateOf("192.168.1.100:8998") }
-    var hostNameInput by remember { mutableStateOf("Dev Workstation") }
+    var hostAddressInput by remember { mutableStateOf("192.168.0.137:8998") }
+    var hostNameInput by remember { mutableStateOf("MK-Lenovo") }
     var pairingCodeInput by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -152,15 +152,31 @@ fun PairDesktopHostSheet(
 
             // Input Fields
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DmsTextField(
-                    value = hostAddressInput,
-                    onValueChange = {
-                        hostAddressInput = it
-                        errorMessage = null
-                    },
-                    label = "Desktop Host Address (IP:Port)",
-                    placeholder = "e.g. 192.168.1.50:8998 or 10.0.2.2:8998"
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    DmsTextField(
+                        value = hostAddressInput,
+                        onValueChange = {
+                            hostAddressInput = it
+                            errorMessage = null
+                        },
+                        label = "Desktop Host Address (IP:Port)",
+                        placeholder = "LAN: 192.168.0.137:8998 or Tailscale: 100.x.x.x:8998"
+                    )
+
+                    val cleanAddr = hostAddressInput.trim()
+                    if (cleanAddr.isNotBlank()) {
+                        val connectionType = when {
+                            cleanAddr.startsWith("100.") -> "Tailscale / Private Remote"
+                            cleanAddr.startsWith("192.168.") || cleanAddr.startsWith("10.") -> "Local Network (Wi-Fi / LAN)"
+                            cleanAddr.startsWith("127.") || cleanAddr.startsWith("localhost") -> "Localhost (Device-only Loopback)"
+                            else -> "Network Host"
+                        }
+                        Text(
+                            text = "Connection Type: $connectionType",
+                            style = DmsTheme.typography.caption.copy(fontSize = 10.sp, color = DmsColors.White64)
+                        )
+                    }
+                }
 
                 DmsTextField(
                     value = hostNameInput,
@@ -169,7 +185,7 @@ fun PairDesktopHostSheet(
                         errorMessage = null
                     },
                     label = "Computer Name",
-                    placeholder = "e.g. MacBook Pro / Dev Workstation"
+                    placeholder = "e.g. MK-Lenovo / Workstation"
                 )
 
                 DmsTextField(
@@ -179,7 +195,7 @@ fun PairDesktopHostSheet(
                         errorMessage = null
                     },
                     label = "Pairing Code (from Desktop)",
-                    placeholder = "e.g. DMS-849201"
+                    placeholder = "e.g. DMS-570176"
                 )
             }
 
