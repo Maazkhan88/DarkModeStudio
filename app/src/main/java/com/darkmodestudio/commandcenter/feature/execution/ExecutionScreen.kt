@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,7 +59,8 @@ fun ExecutionScreen(
     taskRepository: TaskRepository,
     onNotificationClick: () -> Unit,
     onAvatarClick: () -> Unit,
-    onAddTaskClick: (() -> Unit)? = null
+    onAddTaskClick: (() -> Unit)? = null,
+    onTaskClick: ((Task) -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val tasks by taskRepository.tasks.collectAsState(initial = emptyList())
@@ -215,6 +217,9 @@ fun ExecutionScreen(
                             coroutineScope.launch {
                                 taskRepository.toggleTask(task.id, task.status)
                             }
+                        },
+                        onClick = {
+                            onTaskClick?.invoke(task)
                         }
                     )
                 }
@@ -238,9 +243,9 @@ fun ExecutionScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "Add Task",
+                contentDescription = "New Task",
                 tint = DmsColors.OledBlack,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }
@@ -282,14 +287,15 @@ private fun Divider() {
 @Composable
 private fun TaskFeedCard(
     task: Task,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onClick: () -> Unit
 ) {
     val isDone = task.status == TaskStatus.DONE
 
     DmsCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle),
+            .clickable(onClick = onClick),
         shape = DmsRadii.ShapeR16,
         backgroundColor = DmsColors.Surface01,
         padding = 12.dp
@@ -380,12 +386,12 @@ private fun TaskFeedCard(
             }
 
             Icon(
-                imageVector = Icons.Outlined.MoreVert,
-                contentDescription = null,
-                tint = DmsColors.White32,
+                imageVector = Icons.Outlined.PlayArrow,
+                contentDescription = "Execute with Agent",
+                tint = DmsColors.White80,
                 modifier = Modifier
-                    .size(18.dp)
-                    .clickable(onClick = onToggle)
+                    .size(20.dp)
+                    .clickable(onClick = onClick)
             )
         }
     }

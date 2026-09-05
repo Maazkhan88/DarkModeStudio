@@ -56,6 +56,9 @@ import com.darkmodestudio.commandcenter.feature.sheets.CreateReminderSheet
 import com.darkmodestudio.commandcenter.feature.sheets.CreateTaskSheet
 import com.darkmodestudio.commandcenter.feature.sheets.GlobalActionSheet
 import com.darkmodestudio.commandcenter.feature.sheets.ManageAgentsSheet
+import com.darkmodestudio.commandcenter.core.model.Task
+import com.darkmodestudio.commandcenter.core.model.TaskStatus
+import com.darkmodestudio.commandcenter.feature.sheets.ExecuteTaskSheet
 import com.darkmodestudio.commandcenter.feature.sheets.PairDesktopHostSheet
 import com.darkmodestudio.commandcenter.feature.updates.UpdatesScreen
 import kotlinx.coroutines.launch
@@ -100,6 +103,8 @@ fun DmsNavHost(
     var showCreateAutomationSheet by remember { mutableStateOf(false) }
     var showManageAgentsSheet by remember { mutableStateOf(false) }
     var showDesktopPairingSheet by remember { mutableStateOf(false) }
+    var showExecuteTaskSheet by remember { mutableStateOf(false) }
+    var selectedTaskToExecute by remember { mutableStateOf<Task?>(null) }
     var selectedConnectProviderId by remember { mutableStateOf<String?>(null) }
 
     val agentsList by agentRepository.agents.collectAsState(initial = emptyList())
@@ -249,7 +254,11 @@ fun DmsNavHost(
                     taskRepository = taskRepository,
                     onNotificationClick = { navController.navigate(Screen.Updates.route) },
                     onAvatarClick = { navController.navigate(Screen.Settings.route) },
-                    onAddTaskClick = { showCreateTaskSheet = true }
+                    onAddTaskClick = { showCreateTaskSheet = true },
+                    onTaskClick = { task ->
+                        selectedTaskToExecute = task
+                        showExecuteTaskSheet = true
+                    }
                 )
             }
 
@@ -340,6 +349,24 @@ fun DmsNavHost(
                 onDismiss = { showDesktopPairingSheet = false },
                 onPairSuccess = { hostName ->
                     coroutineScope.launch {
+                        syncCoordinator.syncAll(SyncMode.MANUAL)
+                    }
+                }
+            )
+        }
+
+        // Execute Task with Paired Desktop Agent Sheet
+        if (showExecuteTaskSheet && selectedTaskToExecute != null) {
+            ExecuteTaskSheet(
+                task = selectedTaskToExecute!!,
+                desktopHostBridge = hostBridge,
+                onDismiss = {
+                    showExecuteTaskSheet = false
+                    selectedTaskToExecute = null
+                },
+                onTaskCompleted = { completedTask ->
+                    coroutineScope.launch {
+                        taskRepository.toggleTask(completedTask.id, TaskStatus.PENDING)
                         syncCoordinator.syncAll(SyncMode.MANUAL)
                     }
                 }

@@ -17,8 +17,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.darkmodestudio.commandcenter.core.database.entity.AgentUsageSnapshotEntity
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+data class AgentRunPromptResult(
+    val isSuccess: Boolean,
+    val summary: String,
+    val logs: List<String> = emptyList()
+)
 
 data class PairHostResult(
     val isSuccess: Boolean,
@@ -354,6 +363,71 @@ class DesktopHostBridge(
             } catch (_: Exception) {}
         }
         AgentSession(sessionId = UUID.randomUUID().toString(), agentId = agentId, project = project)
+    }
+
+    suspend fun sendPrompt(
+        agentId: String,
+        sessionId: String,
+        prompt: String
+    ): AgentRunPromptResult = withContext(Dispatchers.IO) {
+        val host = getActiveHost()
+        val secret = host?.let { keystoreManager.getSecret(it.credentialAlias ?: "host_${it.hostId}_secret") }
+        if (host != null && secret != null) {
+            try {
+                val normalizedAgent = when (agentId.lowercase()) {
+                    "claude", "claude_code", "claude code" -> "claude"
+                    "antigravity" -> "antigravity"
+                    else -> "codex"
+                }
+                val url = normalizeUrl(host.hostAddress, "/api/runtime/$normalizedAgent/session/$sessionId/prompt")
+                val jsonPayload = JsonObject(mapOf("prompt" to JsonPrimitive(prompt))).toString()
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $secret")
+                    .post(jsonPayload.toRequestBody(jsonMediaType))
+                    .build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    val bodyStr = response.body?.string() ?: "{}"
+                    val root = json.parseToJsonElement(bodyStr).jsonObject
+                    val isSuccess = root["isSuccess"]?.jsonPrimitive?.booleanOrNull ?: response.isSuccessful
+                    val summary = root["summary"]?.jsonPrimitive?.content ?: "Execution completed"
+                    val logs = root["logs"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+
+                    // Record live usage telemetry in Room database
+                    val currentAgent = database.agentDao().getAgentById(normalizedAgent)
+                    if (currentAgent != null) {
+                        val newRuns = currentAgent.runsUsed + 1
+                        val newMessages = currentAgent.messagesUsed + 1
+                        val newTasks = currentAgent.tasksUsed + 1
+                        val updated = currentAgent.copy(
+                            runsUsed = newRuns,
+                            messagesUsed = newMessages,
+                            tasksUsed = newTasks,
+                            currentTask = prompt.take(45),
+                            statusText = "Active • $newRuns runs",
+                            usagePercentage = (newRuns.toFloat() / currentAgent.runsTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        )
+                        database.agentDao().updateAgent(updated)
+                        database.agentDao().insertUsageSnapshot(
+                            AgentUsageSnapshotEntity(
+                                agentId = normalizedAgent,
+                                dataSource = "Desktop Host (${host.hostName})",
+                                requestsUsed = newRuns,
+                                requestsLimit = updated.runsTotal,
+                                messagesUsed = newMessages,
+                                messagesLimit = updated.messagesTotal,
+                                tokensUsed = 1500L
+                            )
+                        )
+                    }
+
+                    return@withContext AgentRunPromptResult(isSuccess = isSuccess, summary = summary, logs = logs)
+                }
+            } catch (e: Exception) {
+                return@withContext AgentRunPromptResult(isSuccess = false, summary = "Error: ${e.localizedMessage}")
+            }
+        }
+        AgentRunPromptResult(isSuccess = false, summary = "Desktop host not connected")
     }
 }
 
